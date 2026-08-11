@@ -1,0 +1,1249 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BMBQ WebApp - Tripatra Engineering Studio</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans antialiased" x-data="appData()">
+
+    <!-- HALAMAN LOGIN -->
+    <div x-show="!isLoggedIn" x-cloak class="min-h-screen flex items-center justify-center bg-white px-4">
+        <div class="max-w-md w-full bg-white border border-slate-200 rounded-2xl shadow-xl p-8 space-y-6">
+            <div class="text-center space-y-3">
+                <div class="inline-flex items-center justify-center w-64 h-36 mb-1">
+                    <img src="logo tripatra.png" alt="Logo Tripatra" class="max-h-32 w-auto object-contain">
+                </div>
+                <h1 class="text-base font-bold text-slate-900 tracking-wide">BMBQ WebApp</h1>
+            </div>
+
+            <div x-show="loginError" x-cloak class="p-3 bg-rose-50 border border-rose-200 text-rose-600 text-xs rounded-xl text-center" x-text="loginErrorMsg"></div>
+
+            <form @submit.prevent="login" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1.5">Email</label>
+                    <input type="email" x-model="loginForm.user" required class="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-900 focus:ring-2 focus:ring-[#82C341] focus:bg-white focus:outline-none transition" placeholder="engineer@tripatra.com">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1.5">Password</label>
+                    <input type="password" x-model="loginForm.pass" required class="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-900 focus:ring-2 focus:ring-[#82C341] focus:bg-white focus:outline-none transition" placeholder="••••••••">
+                </div>
+                <button type="submit" style="background-color: #82C341;" class="w-full py-3 hover:opacity-90 text-white font-semibold rounded-xl transition text-xs shadow-lg shadow-[#82C341]/20 mt-2">
+                    Login
+                </button>
+            </form>
+        </div>
+    </div>
+
+     <!-- HALAMAN DASHBOARD / WORKSPACE UTAMA -->
+    <div x-show="isLoggedIn" x-cloak class="min-h-screen flex bg-slate-100">
+        
+        <!-- SIDEBAR NAVIGASI KIRI -->
+        <aside id="appSidebar" class="w-64 bg-[#111C44] text-slate-300 flex flex-col transition-all duration-300 relative shadow-xl border-r border-slate-800 shrink-0 sticky top-0 h-screen z-50">
+            
+            <!-- LOGO TRIPATRA DI SIDEBAR (DIPERBESAR) -->
+            <div class="sidebar-brand p-4 flex items-center justify-between border-b border-blue-900">
+                <div id="sidebarBrandContainer" class="flex items-center gap-3 overflow-hidden w-full transition-all duration-300">
+                    <!-- Ukuran logo diubah menjadi w-12 h-12 (atau w-14 h-14 jika ingin lebih besar lagi) -->
+                    <img src="logo tripatra.png" alt="Tripatra Logo" class="logo-img w-12 h-12 object-contain shrink-0">
+                    <div class="sidebar-text truncate transition-opacity duration-200">
+                        <h1 class="text-white font-bold text-base tracking-wide leading-tight">Tripatra</h1>
+                        <p class="text-[11px] text-slate-400 uppercase tracking-wider">Engineering Studio</p>
+                    </div>
+                </div>
+                <button onclick="toggleSidebar()" class="p-2 rounded-lg hover:bg-blue-900/60 text-slate-300 transition cursor-pointer shrink-0" title="Buka/Tutup Menu">
+                    <i class="fa-solid fa-bars text-base"></i>
+                </button>
+            </div>
+            <!-- DROPDOWN CREATE PROJECT -->
+            <div class="relative px-3 pt-3" x-data="{ openDropdown: false }">
+                <!-- Tombol Luar Bernama "Create Project" dengan Ikon Panah Dropdown -->
+                <div @click="openDropdown = !openDropdown" class="bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white font-bold text-sm flex items-center justify-between cursor-pointer hover:border-slate-500 shadow-lg transition">
+                    <span class="sidebar-text tracking-wide text-xs">Create Project</span>
+                    <i class="fa-solid fa-chevron-down text-xs text-slate-400 transition-transform duration-200" :class="openDropdown ? 'rotate-180' : ''"></i>
+                </div>
+
+                <!-- Menu Dropdown Berisi Daftar Project & Tombol Create New -->
+                <div x-show="openDropdown" @click.away="openDropdown = false" x-cloak class="absolute left-3 right-3 mt-1.5 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden z-50 py-1 text-xs">
+                    <!-- Opsi Tambah / Buat Project Baru di Dalam Dropdown -->
+                    <div @click="openCreateProjectModal(); openDropdown = false;" class="px-3.5 py-2.5 text-[#82C341] hover:bg-slate-800 cursor-pointer font-bold flex items-center space-x-2 border-b border-slate-800">
+                        <i class="fa-solid fa-plus"></i>
+                        <span>Create New Project</span>
+                    </div>
+
+                    <!-- Tombol Calculate BOM -->
+                    <div @click="showBoqModal = true; openDropdown = false;" class="px-3.5 py-2.5 text-slate-200 hover:bg-slate-800 cursor-pointer font-semibold flex items-center space-x-2 border-b border-slate-800">
+                        <i class="fa-solid fa-calculator text-[#82C341]"></i>
+                        <span>Calculate BOM</span>
+                    </div>
+                    
+                    <!-- Daftar List Proyek di dalam Dropdown -->
+                    <template x-for="projKey in Object.keys(allProjectsData)" :key="projKey">
+                        <div @click="activeProject = projKey; switchProject(); openDropdown = false;"
+                             class="px-3.5 py-2.5 hover:bg-slate-800 cursor-pointer text-slate-300 hover:text-white transition"
+                             :class="activeProject === projKey ? 'bg-slate-800/60 text-[#82C341] font-semibold' : ''">
+                            <div class="flex items-center justify-between gap-2">
+                                <span class="font-semibold" x-text="projKey"></span>
+                                <i x-show="activeProject === projKey" class="fa-solid fa-check text-[10px] text-[#82C341]"></i>
+                            </div>
+                            <span class="block mt-0.5 text-[9px] text-slate-500 truncate"
+                                  x-text="allProjectsData[projKey]?.meta?.projectName || 'Piping & Equipment'"></span>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- MENU UTAMA -->
+            <nav class="flex-1 px-3 py-4 space-y-1.5 overflow-y-auto text-xs">
+                <span class="sidebar-text text-[10px] uppercase font-bold tracking-wider text-slate-500 px-2 mb-1 block">Menu Utama</span>
+                <button @click="currentDashboardTab = 'home'" :class="currentDashboardTab === 'home' ? 'bg-[#82C341] text-white font-semibold' : 'hover:bg-blue-900/50 text-slate-300'" class="sidebar-menu-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition">
+                    <i class="fa-solid fa-house text-base shrink-0 w-4 text-center"></i>
+                    <span class="sidebar-text text-xs font-medium">Dashboard Home</span>
+                </button>
+                <button @click="openDataSheet('Valve')" :class="currentDashboardTab === 'workspace' && !['SP Items', 'Support', 'LineList'].includes(activeSheet) ? 'bg-[#82C341] text-white font-semibold' : 'hover:bg-blue-900/50 text-slate-300'" class="sidebar-menu-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition">
+                    <i class="fa-solid fa-table-cells text-base shrink-0 w-4 text-center"></i>
+                    <span class="sidebar-text text-xs font-medium">MTO & Equipment Suite</span>
+                </button>
+                <div class="mt-1 pl-3 space-y-1 border-l border-blue-900/70 ml-3">
+                    <button @click="openDataSheet('SP Items')" :class="activeSheet === 'SP Items' && currentDashboardTab === 'workspace' ? 'bg-[#82C341]/20 text-[#82C341]' : 'hover:bg-blue-900/40 text-slate-300'" class="sidebar-menu-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition text-left">
+                        <i class="fa-solid fa-cubes text-base w-4 text-center shrink-0"></i><span class="sidebar-text text-xs font-medium">SP Items</span>
+                    </button>
+                    <button @click="openDataSheet('Support')" :class="activeSheet === 'Support' && currentDashboardTab === 'workspace' ? 'bg-[#82C341]/20 text-[#82C341]' : 'hover:bg-blue-900/40 text-slate-300'" class="sidebar-menu-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition text-left">
+                        <i class="fa-solid fa-layer-group text-base w-4 text-center shrink-0"></i><span class="sidebar-text text-xs font-medium">Pipe Support</span>
+                    </button>
+                    <button @click="openDataSheet('LineList')" :class="activeSheet === 'LineList' && currentDashboardTab === 'workspace' ? 'bg-[#82C341]/20 text-[#82C341]' : 'hover:bg-blue-900/40 text-slate-300'" class="sidebar-menu-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition text-left">
+                        <i class="fa-solid fa-route text-base w-4 text-center shrink-0"></i><span class="sidebar-text text-xs font-medium">LineList</span>
+                    </button>
+                </div>
+                <button @click="currentDashboardTab = 'tasks'" :class="currentDashboardTab === 'tasks' ? 'bg-[#82C341] text-white font-semibold' : 'hover:bg-blue-900/50 text-slate-300'" class="sidebar-menu-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition">
+                    <i class="fa-solid fa-list-check text-base shrink-0 w-4 text-center"></i>
+                    <span class="sidebar-text text-xs font-medium">Tasks & Approvals</span>
+                </button>
+                <button @click="currentDashboardTab = 'profile'" :class="currentDashboardTab === 'profile' ? 'bg-[#82C341] text-white font-semibold' : 'hover:bg-blue-900/50 text-slate-300'" class="sidebar-menu-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition">
+                    <i class="fa-solid fa-user text-base shrink-0 w-4 text-center"></i>
+                    <span class="sidebar-text text-xs font-medium">User Profile</span>
+                </button>
+            </nav>
+
+            <div class="p-3 mt-auto border-t border-blue-900">
+                <button @click="logout" class="w-full px-3 py-2 rounded-xl bg-blue-900/40 hover:bg-rose-600 text-slate-300 hover:text-white flex items-center space-x-3 transition text-xs">
+                    <i class="fa-solid fa-power-off w-4 text-center shrink-0"></i>
+                    <span class="sidebar-text">Keluar Workspace</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- KONTEN UTAMA -->
+        <div class="flex-1 flex flex-col min-h-screen">
+            
+            <header class="bg-white border-b border-slate-200 h-16 px-6 flex items-center justify-between sticky top-0 z-40 shadow-sm">
+                <div class="flex items-center space-x-3">
+                    <div class="w-9 h-9 rounded-full bg-emerald-100 text-[#82C341] flex items-center justify-center font-bold text-xs">
+                        <i class="fa-solid fa-user"></i>
+                    </div>
+                    <div>
+                        <span class="text-xs font-bold text-slate-800 block" x-text="loginForm.user"></span>
+                        <span class="text-[10px] text-[#82C341] font-semibold uppercase tracking-wider" x-text="'Peran: ' + loginForm.role"></span>
+                    </div>
+                </div>
+                <div></div>
+            </header>
+
+            <main class="flex-1 p-6 space-y-6 overflow-y-auto">
+
+                <!-- 1. DASHBOARD HOME -->
+                <div x-show="currentDashboardTab === 'home'" class="space-y-6">
+                    <div class="bg-[#82C341] rounded-2xl p-6 text-white shadow-md relative overflow-hidden flex items-center justify-between">
+                        <div class="space-y-1 z-10">
+                            <h1 class="text-xl md:text-2xl font-extrabold tracking-wide">
+                                Sugeng Rawuh 🙏🏻
+                            </h1>
+                            <p class="text-xs text-white/90">Proyek Aktif Saat Ini: <span class="font-bold underline" x-text="activeProject"></span></p>
+                        </div>
+                        <div class="hidden md:block opacity-30 text-7xl absolute right-6">
+                            <i class="fa-solid fa-chart-line"></i>
+                        </div>
+                    </div>
+
+                    <!-- KEUNTUNGAN APLIKASI -->
+                    <div class="space-y-3">
+                        <div>
+                            <h3 class="text-xs font-bold text-slate-800 uppercase tracking-wider">Keuntungan Aplikasi</h3>
+                            <p class="text-[11px] text-slate-500 mt-1">Manfaat utama BMBQ WebApp dalam membantu proses pengelolaan data piping dan equipment.</p>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+                            <div class="dashboard-benefit-card bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-3">
+                                <div class="w-10 h-10 rounded-xl bg-emerald-50 text-[#82C341] flex items-center justify-center">
+                                    <i class="fa-solid fa-database"></i>
+                                </div>
+                                <span class="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[10px] font-bold rounded">DATA TERPUSAT</span>
+                                <h4 class="text-sm font-bold text-slate-800">Data lebih terorganisir</h4>
+                                <p class="text-[11px] text-slate-500 leading-relaxed">Data MTO, SP Items, Pipe Support, LineList, dan Equipment dikelola dalam satu workspace per proyek sehingga lebih mudah dicari dan diperbarui.</p>
+                            </div>
+
+                            <div class="dashboard-benefit-card bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-3">
+                                <div class="w-10 h-10 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center">
+                                    <i class="fa-solid fa-clock"></i>
+                                </div>
+                                <span class="px-2 py-0.5 bg-sky-50 text-sky-700 text-[10px] font-bold rounded">EFISIENSI WAKTU</span>
+                                <h4 class="text-sm font-bold text-slate-800">Pekerjaan lebih cepat</h4>
+                                <p class="text-[11px] text-slate-500 leading-relaxed">Import Excel, pencarian data, pagination, freeze column, dan export mengurangi pekerjaan manual serta mempermudah pengolahan data engineering.</p>
+                            </div>
+
+                            <div class="dashboard-benefit-card bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-3">
+                                <div class="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                                    <i class="fa-solid fa-circle-check"></i>
+                                </div>
+                                <span class="px-2 py-0.5 bg-indigo-50 text-indigo-700 text-[10px] font-bold rounded">KONTROL DATA</span>
+                                <h4 class="text-sm font-bold text-slate-800">Data lebih mudah dikontrol</h4>
+                                <p class="text-[11px] text-slate-500 leading-relaxed">Pembagian role Piping Engineer, Estimator Proposal, dan Lead Estimator membantu mengatur proses input, review, kalkulasi, dan approval.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- KELEBIHAN APLIKASI -->
+                    <div class="space-y-3">
+                        <div>
+                            <h3 class="text-xs font-bold text-slate-800 uppercase tracking-wider">Kelebihan Aplikasi</h3>
+                            <p class="text-[11px] text-slate-500 mt-1">Fitur utama yang membuat BMBQ WebApp lebih praktis untuk pekerjaan engineering.</p>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+                            <div class="dashboard-benefit-card bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-3">
+                                <div class="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                                    <i class="fa-solid fa-file-excel"></i>
+                                </div>
+                                <span class="px-2 py-0.5 bg-amber-50 text-amber-700 text-[10px] font-bold rounded">IMPORT & EXPORT</span>
+                                <h4 class="text-sm font-bold text-slate-800">Terintegrasi dengan Excel</h4>
+                                <p class="text-[11px] text-slate-500 leading-relaxed">Data dari Excel dapat diimpor ke sheet proyek dan hasil pengolahan dapat diekspor kembali ke Excel maupun PDF.</p>
+                            </div>
+
+                            <div class="dashboard-benefit-card bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-3">
+                                <div class="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
+                                    <i class="fa-solid fa-table-columns"></i>
+                                </div>
+                                <span class="px-2 py-0.5 bg-purple-50 text-purple-700 text-[10px] font-bold rounded">DATA TABLE</span>
+                                <h4 class="text-sm font-bold text-slate-800">Tabel lebih nyaman digunakan</h4>
+                                <p class="text-[11px] text-slate-500 leading-relaxed">Freeze kolom penting, scroll horizontal dan vertikal, pencarian, serta pagination membantu saat bekerja dengan data yang banyak.</p>
+                            </div>
+
+                            <div class="dashboard-benefit-card bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-3">
+                                <div class="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
+                                    <i class="fa-solid fa-user-shield"></i>
+                                </div>
+                                <span class="px-2 py-0.5 bg-rose-50 text-rose-700 text-[10px] font-bold rounded">ROLE & WORKFLOW</span>
+                                <h4 class="text-sm font-bold text-slate-800">Hak akses sesuai peran</h4>
+                                <p class="text-[11px] text-slate-500 leading-relaxed">Setiap peran memiliki fokus kerja yang berbeda sehingga proses input, estimasi, review, dan approval dapat dilakukan lebih terarah.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. HALAMAN WORKSPACE / MTO SUITE -->
+                <div x-show="currentDashboardTab === 'workspace'" class="space-y-4">
+                    <div class="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
+                        <div class="flex items-center space-x-3 w-full md:w-auto">
+                            <div class="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-[#82C341]">
+                                <i class="fa-solid fa-user-shield text-sm"></i>
+                            </div>
+                            <div>
+                                <span class="text-[10px] text-slate-400 uppercase font-semibold">Dashboard & Fokus Peran:</span>
+                                <div class="text-xs font-bold text-slate-800" x-text="getRoleFocusText()"></div>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center space-x-2 w-full md:w-auto justify-end flex-wrap gap-2">
+                            <template x-if="loginForm.role === 'Estimator Proposal'">
+                                <button @click="generateBOQ" class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold transition flex items-center space-x-1.5 shadow">
+                                    <i class="fa-solid fa-calculator text-[10px]"></i>
+                                    <span>Kalkulasi Biaya BOQ</span>
+                                </button>
+                            </template>
+
+                            <template x-if="loginForm.role === 'Lead Estimator'">
+                                <button @click="approveData" class="px-3.5 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-semibold transition flex items-center space-x-1.5 shadow">
+                                    <i class="fa-solid fa-check-double text-[10px]"></i>
+                                    <span>Approval & Review Laporan</span>
+                                </button>
+                            </template>
+
+                            <div class="h-6 w-px bg-slate-200 mx-1"></div>
+
+                            <label class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-amber-700 border border-slate-200 rounded-xl text-xs font-semibold transition flex items-center space-x-1 cursor-pointer">
+                                <i class="fa-solid fa-file-arrow-up"></i><span>Import Excel</span>
+                                <input type="file" accept=".xlsx, .xls" class="hidden" @change="importExcelFile($event)">
+                            </label>
+
+                            <div class="relative" x-data="{ exportOpen: false }">
+                                <button @click="exportOpen = !exportOpen" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-[#82C341] border border-slate-200 rounded-xl text-xs font-semibold transition flex items-center space-x-1.5">
+                                    <i class="fa-solid fa-file-export"></i><span>Export</span><i class="fa-solid fa-chevron-down text-[9px]"></i>
+                                </button>
+                                <div x-show="exportOpen" @click.away="exportOpen = false" x-cloak class="absolute right-0 mt-1.5 w-36 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-1">
+                                    <button @click="exportExcel(); exportOpen = false" class="w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-emerald-50 rounded-lg flex items-center gap-2"><i class="fa-solid fa-file-excel text-emerald-600"></i> Excel</button>
+                                    <button @click="printPDF(); exportOpen = false" class="w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-rose-50 rounded-lg flex items-center gap-2"><i class="fa-solid fa-file-pdf text-rose-600"></i> PDF</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- TABEL DATA -->
+                    <div class="bg-white border border-slate-200 rounded-2xl shadow-sm flex flex-col overflow-hidden">
+                        <div class="p-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-4">
+                            <div class="flex items-center space-x-3 flex-wrap gap-2">
+                                <span class="text-xs font-bold text-slate-800" x-text="'Proyek: ' + activeProject + ' | Sheet: ' + activeSheet"></span>
+                                <span class="bg-slate-100 border border-slate-300 text-slate-700 px-2 py-0.5 rounded-md text-[10px] font-bold" x-text="getProjectVersion()"></span>
+
+                                <div class="flex items-center space-x-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1">
+                                    <span class="text-[10px] font-semibold text-slate-500">Progress:</span>
+                                    <select x-model="allProjectsData[activeProject].meta.progress" @change="saveStorage" class="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer">
+                                        <option value="0%">0%</option>
+                                        <option value="30%">30%</option>
+                                        <option value="50%">50%</option>
+                                        <option value="90%">90%</option>
+                                        <option value="100%">100%</option>
+                                    </select>
+                                </div>
+
+                                <template x-if="allProjectsData[activeProject]?.meta?.isApproved">
+                                    <span class="bg-emerald-100 border border-emerald-300 text-[#82C341] px-2 py-0.5 rounded-md text-[10px] font-semibold flex items-center space-x-1">
+                                        <i class="fa-solid fa-circle-check"></i>
+                                        <span x-text="'Approved (' + allProjectsData[activeProject].meta.approvedAt + ')'"></span>
+                                    </span>
+                                </template>
+                                <template x-if="!allProjectsData[activeProject]?.meta?.isApproved">
+                                    <span class="bg-amber-100 border border-amber-300 text-amber-700 px-2 py-0.5 rounded-md text-[10px] font-semibold">
+                                        Pending Review
+                                    </span>
+                                </template>
+                            </div>
+                            <div class="relative w-72">
+                                <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                                    <i class="fa-solid fa-search text-xs"></i>
+                                </span>
+                                <input type="text" x-model="globalSearch" placeholder="Cari data spesifikasi / material..." class="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-[#82C341]">
+                            </div>
+                        </div>
+
+                        <!-- KONTEN TABEL DENGAN CUSTOM SCROLLBAR -->
+                        <div class="excel-table-container custom-scrollbar">
+                            <table class="excel-table">
+                                <thead>
+                                    <tr>
+                                        <th class="sticky-col-no">No</th>
+                                        <th class="sticky-col-desc">Long Description (Family)</th>
+                                        <th class="sticky-col-standard">Compatible Standard</th>
+                                        <th class="sticky-col-mfg">Manufacturer</th>
+                                        
+                                        <template x-for="col in currentColumns.filter(c => c !== 'Long Description (Family)' && c !== 'Compatible Standard' && c !== 'Manufacturer')" :key="col">
+                                            <th :title="col" x-text="col" style="min-width: 130px;"></th>
+                                        </template>
+                                        <th x-show="loginForm.role === 'Piping Engineer'" style="min-width: 80px;">Aksi</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="(row, index) in paginatedRows" :key="index">
+                                        <tr :class="{'inline-new-row': row.Status === 'New' && !row.__savedBeforeAdd}">
+                                            <td class="sticky-col-no font-mono text-[#82C341] font-semibold text-center"
+                                                x-text="String((currentPage - 1) * itemsPerPage + index + 1).padStart(2, '0')">
+                                            </td>
+                                            
+                                            <td class="sticky-col-desc text-left font-semibold text-slate-800">
+                                                <input type="text" x-model="row['Long Description (Family)']" :disabled="loginForm.role !== 'Piping Engineer'" @change="markRowEdited(row)" class="excel-input text-left">
+                                            </td>
+
+                                            <td class="sticky-col-standard text-center">
+                                                <input type="text" x-model="row['Compatible Standard']" :disabled="loginForm.role !== 'Piping Engineer'" @change="markRowEdited(row)" class="excel-input text-center">
+                                            </td>
+
+                                            <td class="sticky-col-mfg text-center">
+                                                <input type="text" x-model="row['Manufacturer']" :disabled="loginForm.role !== 'Piping Engineer'" @change="markRowEdited(row)" class="excel-input text-center">
+                                            </td>
+                                            
+                                            <template x-for="col in currentColumns.filter(c => c !== 'Long Description (Family)' && c !== 'Compatible Standard' && c !== 'Manufacturer')" :key="col">
+                                                <td style="min-width: 130px;">
+                                                    <input type="text" x-model="row[col]" :disabled="loginForm.role !== 'Piping Engineer'" @change="markRowEdited(row)" class="excel-input text-center">
+                                                </td>
+                                            </template>
+
+                                            <td class="text-center" x-show="loginForm.role === 'Piping Engineer'" style="min-width: 80px;">
+                                                <button @click="deleteRow(index)" class="px-2 py-1 bg-rose-100 hover:bg-rose-200 text-rose-600 rounded-lg text-[10px] transition" title="Hapus Baris">
+                                                    <i class="fa-solid fa-trash-can"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- INFORMASI BARIS + TAMBAH DATA + PAGINATION -->
+                        <div class="p-3 border-t border-slate-200 bg-white flex items-center justify-between gap-3 text-xs text-slate-500">
+                            <div class="flex items-center gap-3 min-w-0">
+                                <span class="whitespace-nowrap">Menampilkan Baris: <span class="text-slate-800 font-bold" x-text="filteredRows.length"></span> Data</span>
+                                <template x-if="loginForm.role === 'Piping Engineer'">
+                                    <button @click="openAddModalForActiveSheet()" style="background-color: #82C341;" class="px-3.5 py-2 text-white rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow hover:opacity-90 whitespace-nowrap">
+                                        <i class="fa-solid fa-plus text-[10px]"></i>
+                                        <span x-text="'Add data'"></span>
+                                    </button>
+                                </template>
+                                <template x-if="loginForm.role !== 'Piping Engineer'">
+                                    <span class="px-3 py-2 bg-slate-100 border border-slate-200 text-slate-500 rounded-xl text-[10px] whitespace-nowrap">Tambah data hanya untuk Piping Engineer</span>
+                                </template>
+                            </div>
+                            <div class="flex items-center space-x-2 shrink-0">
+                                <button @click="if(currentPage > 1) currentPage--" class="px-3 py-1 bg-slate-100 border border-slate-200 rounded-lg text-slate-700 hover:bg-slate-200 transition">Prev</button>
+                                <span class="px-2 font-mono" x-text="currentPage + ' / ' + maxPage"></span>
+                                <button @click="if(currentPage < maxPage) currentPage++" class="px-3 py-1 bg-slate-100 border border-slate-200 rounded-lg text-slate-700 hover:bg-slate-200 transition">Next</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- PILIHAN SHEET -->
+                    <div class="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+                        <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center space-x-2">
+                            <i class="fa-solid fa-table-cells text-[#82C341]"></i>
+                            <span>Navigasi Kategori Sheet Master Data (23 Kategori):</span>
+                        </div>
+                        <div class="flex overflow-x-auto space-x-2 pb-1 custom-scrollbar">
+                            <template x-for="sheet in sheets" :key="sheet">
+                                <button @click="changeSheet(sheet)"
+                                    :style="activeSheet === sheet ? 'background-color: #82C341;' : ''"
+                                    :class="activeSheet === sheet ? 'text-white font-bold shadow-md' : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200'"
+                                    class="px-3.5 py-2 rounded-xl text-xs whitespace-nowrap transition" x-text="sheet"></button>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 3. HALAMAN TASKS -->
+                <div x-show="currentDashboardTab === 'tasks'" class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
+                    <h2 class="text-base font-bold text-slate-800">Task Management & Approvals</h2>
+                    <p class="text-xs text-slate-500">Daftar tugas, persetujuan dokumen, dan riwayat keputusan untuk project aktif.</p>
+
+                    <div class="mt-4 space-y-4">
+                        <div class="flex items-center space-x-2 border-b border-slate-200 pb-2">
+                            <button @click="openActiveTasks()"
+                                :class="taskView === 'active' ? 'bg-[#82C341] text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'"
+                                class="px-3 py-1.5 rounded-lg text-xs font-bold transition">
+                                Tugas Aktif (<span x-text="activeTaskCount"></span>)
+                            </button>
+                            <button @click="openApprovalHistory()"
+                                :class="taskView === 'history' ? 'bg-[#82C341] text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'"
+                                class="px-3 py-1.5 rounded-lg text-xs font-semibold transition">
+                                Riwayat Selesai (<span x-text="projectApprovalHistory.length"></span>)
+                            </button>
+                        </div>
+
+                        <!-- TUGAS AKTIF -->
+                        <template x-if="taskView === 'active'">
+                            <div class="space-y-3">
+                                <div class="p-4 bg-sky-50/50 border border-sky-200 rounded-xl space-y-2">
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-xs font-bold text-sky-900">Status Project & Catatan Revisi Terakhir</span>
+                                        <span class="px-2 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-bold rounded"
+                                              x-text="latestApproval ? getApprovalStatusText(latestApproval.status) : 'Menunggu'"></span>
+                                    </div>
+                                    <p class="text-xs text-slate-600"
+                                       x-text="latestApproval?.notes || allProjectsData[activeProject]?.meta?.revisionNotes || 'Belum ada catatan revisi yang tersimpan.'"></p>
+                                </div>
+
+                                <template x-if="activeTaskCount > 0">
+                                    <div class="p-4 bg-white border border-slate-200 rounded-xl shadow-sm flex items-center justify-between gap-4">
+                                        <div class="space-y-1">
+                                            <div class="flex items-center space-x-2">
+                                                <span class="px-2 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-bold rounded">High Priority</span>
+                                                <span class="text-xs font-bold text-slate-800">Review MTO & Spesifikasi Valve Proyek Saat Ini</span>
+                                            </div>
+                                            <p class="text-[11px] text-slate-500">Periksa kembali data material take off (MTO) pada sheet Valve sebelum diserahkan ke Lead Estimator.</p>
+                                        </div>
+                                        <button type="button" @click="openTaskMTOValve()"
+                                            class="px-3 py-1.5 bg-slate-800 text-white rounded-lg text-xs font-semibold hover:bg-slate-700 whitespace-nowrap">
+                                            Kerjakan
+                                        </button>
+                                    </div>
+                                </template>
+
+                                <template x-if="activeTaskCount === 0">
+                                    <div class="p-8 text-center border border-dashed border-slate-300 rounded-xl bg-slate-50">
+                                        <i class="fa-solid fa-circle-check text-emerald-500 text-2xl mb-2"></i>
+                                        <p class="text-xs font-bold text-slate-700">Tidak ada tugas aktif</p>
+                                        <p class="text-[11px] text-slate-500 mt-1">Keputusan terakhir sudah masuk ke Riwayat Selesai.</p>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
+
+                        <!-- RIWAYAT SELESAI -->
+                        <template x-if="taskView === 'history'">
+                            <div class="space-y-3">
+                                <template x-if="projectApprovalHistory.length > 0">
+                                    <div class="space-y-3">
+                                        <template x-for="item in [...projectApprovalHistory].reverse()" :key="item.id">
+                                            <div class="p-4 bg-white border border-slate-200 rounded-xl shadow-sm">
+                                                <div class="flex items-start justify-between gap-4">
+                                                    <div class="space-y-2 min-w-0">
+                                                        <div class="flex items-center gap-2 flex-wrap">
+                                                            <span class="px-2 py-0.5 text-[10px] font-bold rounded"
+                                                                  :class="getApprovalStatusClass(item.status)"
+                                                                  x-text="getApprovalStatusText(item.status)"></span>
+                                                            <span class="text-xs font-bold text-slate-800" x-text="item.title"></span>
+                                                        </div>
+                                                        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-[10px] text-slate-500">
+                                                            <div><span class="font-semibold text-slate-700">Project:</span> <span x-text="item.projectId"></span></div>
+                                                            <div><span class="font-semibold text-slate-700">Sheet:</span> <span x-text="item.sheet"></span></div>
+                                                            <div><span class="font-semibold text-slate-700">Revision:</span> Rev <span x-text="item.revision"></span></div>
+                                                            <div><span class="font-semibold text-slate-700">Reviewer:</span> <span x-text="item.reviewer"></span></div>
+                                                        </div>
+                                                        <p class="text-[10px] text-slate-400" x-text="item.timestamp"></p>
+                                                        <p x-show="item.notes" class="text-[11px] text-slate-600 bg-slate-50 border border-slate-200 rounded-lg p-2" x-text="item.notes"></p>
+                                                    </div>
+                                                    <button @click="openApprovalDetail(item)" class="px-3 py-1.5 bg-slate-800 text-white rounded-lg text-[10px] font-semibold hover:bg-slate-700 whitespace-nowrap">Lihat Detail</button>
+                                                </div>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </template>
+
+                                <template x-if="projectApprovalHistory.length === 0">
+                                    <div class="p-8 text-center border border-dashed border-slate-300 rounded-xl bg-slate-50">
+                                        <i class="fa-solid fa-clock-rotate-left text-slate-400 text-2xl mb-2"></i>
+                                        <p class="text-xs font-bold text-slate-700">Belum ada riwayat selesai</p>
+                                        <p class="text-[11px] text-slate-500 mt-1">Setelah Approve, Reject, atau Minta Revisi, keputusan akan muncul di sini.</p>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- 4. HALAMAN PROFILE -->
+                <div x-show="currentDashboardTab === 'profile'" class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4 max-w-xl">
+                    <h2 class="text-base font-bold text-slate-800">User Profile & Settings</h2>
+                    <div class="space-y-3 text-xs text-slate-600">
+                        <div class="p-3 bg-slate-55 rounded-xl border border-slate-200">
+                            <b>Email Workspace:</b> <span x-text="loginForm.user"></span>
+                        </div>
+                        <div class="p-3 bg-slate-55 rounded-xl border border-slate-200">
+                            <b>Peran Aktif:</b> <span x-text="loginForm.role" class="text-[#82C341] font-bold"></span>
+                        </div>
+                    </div>
+                </div>
+
+            </main>
+        </div>
+    </div>
+
+    <!-- MODAL CREATE PROJECT -->
+    <div x-show="showCreateProjectModal" x-cloak
+         class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/60 backdrop-blur-sm px-4 py-6"
+         @keydown.escape.window="closeCreateProjectModal()">
+        <div class="create-project-modal bg-white border border-slate-200 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden" @click.stop>
+
+            <div class="px-6 py-4 border-b border-slate-200 bg-white flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200 text-[#82C341] flex items-center justify-center">
+                        <i class="fa-solid fa-folder-plus"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-bold text-slate-900">Create New Project</h3>
+                        <p class="text-[10px] text-slate-500 mt-0.5">Buat workspace project baru tanpa menyalin data project lain.</p>
+                    </div>
+                </div>
+                <button @click="closeCreateProjectModal()" class="w-8 h-8 rounded-lg text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <form @submit.prevent="createProject()" class="p-6 space-y-5">
+
+                <div x-show="createProjectMessage" x-cloak
+                     :class="createProjectMessageType === 'success'
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                        : 'bg-rose-50 border-rose-200 text-rose-700'"
+                     class="rounded-xl border px-3.5 py-3 text-[11px] flex items-start gap-2">
+                    <i :class="createProjectMessageType === 'success' ? 'fa-solid fa-circle-check' : 'fa-solid fa-circle-exclamation'" class="mt-0.5"></i>
+                    <span x-text="createProjectMessage"></span>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-[11px] font-bold text-slate-700 mb-1.5">
+                            Project Code <span class="text-rose-500">*</span>
+                        </label>
+                        <div class="relative">
+                            <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400 text-xs">
+                                <i class="fa-solid fa-hashtag"></i>
+                            </span>
+                            <input type="text"
+                                   x-model="createProjectForm.code"
+                                   @input="createProjectForm.code = createProjectForm.code.toUpperCase().replace(/\s+/g, '')"
+                                   placeholder="Contoh: PRJ-3000 / BMBQ-01 / E2401"
+                                   maxlength="50"
+                                   autocomplete="off"
+                                   class="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#82C341]/30 focus:border-[#82C341]">
+                        </div>
+                        <p class="text-[9px] text-slate-400 mt-1">Isi sesuai kode project yang digunakan pada file atau dokumen project.</p>
+                    </div>
+
+                    <div>
+                        <label class="block text-[11px] font-bold text-slate-700 mb-1.5">
+                            Project Name <span class="text-rose-500">*</span>
+                        </label>
+                        <div class="relative">
+                            <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400 text-xs">
+                                <i class="fa-solid fa-briefcase"></i>
+                            </span>
+                            <input type="text"
+                                   x-model="createProjectForm.name"
+                                   placeholder="Piping & Equipment"
+                                   maxlength="80"
+                                   autocomplete="off"
+                                   class="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#82C341]/30 focus:border-[#82C341]">
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-[11px] font-bold text-slate-700 mb-1.5">
+                        Project Description <span class="text-slate-400 font-normal">(optional)</span>
+                    </label>
+                    <textarea x-model="createProjectForm.description"
+                              rows="2"
+                              maxlength="180"
+                              placeholder="Contoh: Piping & Equipment untuk project baru..."
+                              class="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 resize-none focus:outline-none focus:ring-2 focus:ring-[#82C341]/30 focus:border-[#82C341]"></textarea>
+                </div>
+
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-700">Data Initialization</label>
+                            <p class="text-[9px] text-slate-400 mt-0.5">Pilih cara mengisi project baru.</p>
+                        </div>
+                        <span class="text-[9px] font-semibold text-[#82C341] bg-emerald-50 border border-emerald-100 px-2 py-1 rounded-full">
+                            Project baru selalu terpisah
+                        </span>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <label class="project-init-option cursor-pointer"
+                               :class="createProjectForm.initialization === 'empty' ? 'active' : ''">
+                            <input type="radio" class="sr-only" value="empty" x-model="createProjectForm.initialization">
+                            <div class="flex items-start gap-3">
+                                <div class="w-9 h-9 rounded-lg bg-emerald-50 text-[#82C341] flex items-center justify-center shrink-0">
+                                    <i class="fa-solid fa-file-circle-plus"></i>
+                                </div>
+                                <div>
+                                    <div class="text-xs font-bold text-slate-800">Empty Project</div>
+                                    <p class="text-[10px] text-slate-500 mt-1 leading-relaxed">
+                                        Semua sheet dibuat kosong. Cocok untuk project baru.
+                                    </p>
+                                </div>
+                            </div>
+                        </label>
+
+                        <label class="project-init-option cursor-pointer"
+                               :class="createProjectForm.initialization === 'import' ? 'active' : ''">
+                            <input type="radio" class="sr-only" value="import" x-model="createProjectForm.initialization">
+                            <div class="flex items-start gap-3">
+                                <div class="w-9 h-9 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+                                    <i class="fa-solid fa-file-excel"></i>
+                                </div>
+                                <div>
+                                    <div class="text-xs font-bold text-slate-800">Import Excel</div>
+                                    <p class="text-[10px] text-slate-500 mt-1 leading-relaxed">
+                                        Buat project sekaligus mengisi data dari file Excel.
+                                    </p>
+                                </div>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <div x-show="createProjectForm.initialization === 'import'" x-cloak
+                     class="rounded-xl border border-dashed border-amber-300 bg-amber-50/60 p-4">
+                    <div class="flex items-center gap-3">
+                        <div class="w-9 h-9 rounded-lg bg-white border border-amber-200 text-amber-600 flex items-center justify-center shrink-0">
+                            <i class="fa-solid fa-upload"></i>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <label class="text-[10px] font-bold text-slate-700 block">Pilih File Excel</label>
+                            <p class="text-[9px] text-slate-500 mt-0.5 truncate"
+                               x-text="createProjectForm.fileName || 'Belum ada file dipilih (.xlsx / .xls)'"></p>
+                        </div>
+                        <label class="px-3 py-2 bg-white border border-amber-200 text-amber-700 rounded-lg text-[10px] font-bold cursor-pointer hover:bg-amber-100 transition shrink-0">
+                            Browse
+                            <input type="file" accept=".xlsx,.xls" class="hidden" @change="handleCreateProjectFile($event)">
+                        </label>
+                    </div>
+                    <div x-show="createProjectForm.fileName" x-cloak class="mt-3 text-[9px] text-emerald-700 flex items-center gap-1">
+                        <i class="fa-solid fa-circle-check"></i>
+                        <span>File siap diimport saat project dibuat.</span>
+                    </div>
+                </div>
+
+                <div class="rounded-xl bg-slate-50 border border-slate-200 p-3.5">
+                    <div class="flex items-start gap-2">
+                        <i class="fa-solid fa-circle-info text-[#82C341] mt-0.5"></i>
+                        <div>
+                            <p class="text-[10px] font-semibold text-slate-700">Workspace yang akan dibuat</p>
+                            <p class="text-[9px] text-slate-500 mt-1 leading-relaxed">
+                                SP Items, Valve, Support, LineList, Pipe, Fitting, Equipment, dan sheet master lainnya tersedia otomatis.
+                                Data project lain tidak akan disalin.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-between pt-2 border-t border-slate-200">
+                    <span class="text-[9px] text-slate-400">
+                        <i class="fa-solid fa-shield-halved mr-1"></i>Data tersimpan di browser workspace ini.
+                    </span>
+                    <div class="flex items-center gap-2">
+                        <button type="button"
+                                @click="closeCreateProjectModal()"
+                                class="px-4 py-2.5 bg-slate-100 border border-slate-200 text-slate-700 rounded-xl text-xs font-semibold hover:bg-slate-200 transition">
+                            Batal
+                        </button>
+                        <button type="submit"
+                                :disabled="isCreatingProject"
+                                class="px-4 py-2.5 bg-[#82C341] hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold shadow-sm transition flex items-center gap-2">
+                            <i :class="isCreatingProject ? 'fa-solid fa-spinner fa-spin' : 'fa-solid fa-folder-plus'"></i>
+                            <span x-text="isCreatingProject ? 'Creating...' : 'Create Project'"></span>
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL TAMBAH DATA DINAMIS -->
+    <div x-show="showAddModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
+        <div class="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
+            <div class="flex items-center justify-between border-b border-slate-200 pb-3">
+                <h3 class="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center space-x-2">
+                    <i class="fa-solid fa-circle-plus text-[#82C341]"></i>
+                    <span x-text="'Tambah Data ' + activeSheet + ' - ' + activeProject"></span>
+                </h3>
+                <button @click="showAddModal = false" class="text-slate-400 hover:text-slate-800"><i class="fa-solid fa-xmark text-sm"></i></button>
+            </div>
+
+            <div class="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-[11px] text-emerald-800">
+                <i class="fa-solid fa-circle-info mr-1"></i> Form menyesuaikan kategori aktif: <b x-text="activeSheet"></b>. Data baru akan tersimpan pada proyek aktif.
+            </div>
+
+            <div class="space-y-3 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar text-xs">
+                <div>
+                    <label class="block text-slate-600 mb-1">Long Description / Nama Item</label>
+                    <input type="text" x-model="newRowForm.longDesc" :placeholder="activeSheet === 'LineList' ? 'Contoh: Process Line / Utility Line' : (activeSheet === 'Support' ? 'Contoh: Pipe Shoe / Guide Support' : 'Contoh: Gate Valve / Pipe / Fitting')" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-slate-800 focus:ring-1 focus:ring-[#82C341] focus:outline-none">
+                </div>
+
+                <template x-if="activeSheet === 'Support'">
+                    <div>
+                        <label class="block text-slate-600 mb-1">Support Type</label>
+                        <select x-model="newRowForm.supportType" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-slate-800 focus:outline-none">
+                            <option value="Pipe Shoe">Pipe Shoe</option>
+                            <option value="Guide">Guide</option>
+                            <option value="Anchor">Anchor</option>
+                            <option value="Hanger">Hanger</option>
+                            <option value="Clamp">Clamp</option>
+                        </select>
+                    </div>
+                </template>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-slate-600 mb-1">Material</label>
+                        <select x-model="newRowForm.material" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-slate-800 focus:outline-none">
+                            <option value="CS">Carbon Steel (CS)</option>
+                            <option value="SS">Stainless Steel (SS)</option>
+                            <option value="AS">Alloy Steel (AS)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-slate-600 mb-1">Spec</label>
+                        <select x-model="newRowForm.spec" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-slate-800 focus:outline-none">
+                            <option value="CS150">CS150 (Class 150)</option>
+                            <option value="CS300">CS300 (Class 300)</option>
+                            <option value="SS150">SS150 (Stainless 150)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-slate-600 mb-1">Size</label>
+                        <select x-model="newRowForm.size" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-slate-800 focus:outline-none">
+                            <option value="1/2">1/2"</option><option value="3/4">3/4"</option><option value="1">1"</option><option value="2">2"</option><option value="3">3"</option><option value="4">4"</option><option value="6">6"</option><option value="8">8"</option><option value="10">10"</option><option value="12">12"</option>
+                        </select>
+                    </div>
+                    <div x-show="activeSheet !== 'LineList'">
+                        <label class="block text-slate-600 mb-1">Quantity</label>
+                        <input type="number" min="0" x-model="newRowForm.qty" placeholder="Contoh: 10" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-slate-800 focus:outline-none">
+                    </div>
+                    <div x-show="activeSheet === 'LineList'">
+                        <label class="block text-slate-600 mb-1">Pressure Class</label>
+                        <select x-model="newRowForm.pressure" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-slate-800 focus:outline-none">
+                            <option value="150">150 LB</option><option value="300">300 LB</option><option value="600">600 LB</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div x-show="activeSheet !== 'LineList'">
+                        <label class="block text-slate-600 mb-1">Satuan</label>
+                        <select x-model="newRowForm.unit" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-slate-800 focus:outline-none">
+                            <option value="EA">EA</option><option value="M">M</option><option value="SET">SET</option><option value="KG">KG</option>
+                        </select>
+                    </div>
+                    <div x-show="activeSheet === 'LineList'">
+                        <label class="block text-slate-600 mb-1">Fluid Service</label>
+                        <input type="text" x-model="newRowForm.service" placeholder="Contoh: Cooling Water" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-slate-800 focus:outline-none">
+                    </div>
+                    <div x-show="activeSheet !== 'LineList'">
+                        <label class="block text-slate-600 mb-1">Line Number Tag</label>
+                        <input type="text" x-model="newRowForm.tag" placeholder="Contoh: 100-CDP-8-0001-C1501" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-slate-800 focus:outline-none font-mono">
+                    </div>
+                </div>
+
+                <template x-if="activeSheet === 'LineList'">
+                    <div>
+                        <label class="block text-slate-600 mb-1">Line Number Tag</label>
+                        <input type="text" x-model="newRowForm.tag" placeholder="Contoh: 100-CDP-8-0001-C1501" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-slate-800 focus:outline-none font-mono">
+                    </div>
+                </template>
+
+                <template x-if="activeSheet !== 'Support' && activeSheet !== 'LineList'">
+                    <div>
+                        <label class="block text-slate-600 mb-1">Waste Factor Margin (%)</label>
+                        <select x-model="newRowForm.wasteFactor" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-slate-800 focus:outline-none">
+                            <option value="5">5% - Standar Pipa / Fitting</option>
+                            <option value="10">10% - Standar Valve / Flange</option>
+                            <option value="20">20% - Standar Insulation</option>
+                        </select>
+                    </div>
+                </template>
+            </div>
+
+            <div class="flex items-center justify-end space-x-2 pt-2 border-t border-slate-200">
+                <button @click="showAddModal = false" class="px-4 py-2 bg-slate-200 text-slate-700 rounded-xl hover:bg-slate-300 text-xs">Batal</button>
+                <button @click="saveNewRowData" style="background-color: #82C341;" class="px-4 py-2 text-white font-semibold rounded-xl hover:opacity-90 text-xs shadow"><i class="fa-solid fa-check mr-1"></i> Simpan Data</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL KALKULASI & RINCIAN BOQ -->
+    <div x-show="showBoqModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
+        <div class="bg-white border border-slate-200 rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-2xl">
+            <div class="flex items-center justify-between border-b border-slate-200 pb-3">
+                <h3 class="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center space-x-2">
+                    <i class="fa-solid fa-calculator text-indigo-600"></i>
+                    <span x-text="'Rincian Kalkulasi Biaya BOQ - Proyek [' + activeProject + ']'"></span>
+                </h3>
+                <button @click="showBoqModal = false" class="text-slate-400 hover:text-slate-800"><i class="fa-solid fa-xmark text-sm"></i></button>
+            </div>
+
+            <div class="space-y-3 text-xs text-slate-700">
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block font-semibold text-slate-700 mb-1">Pilih Level Harga Satuan:</label>
+                        <div class="grid grid-cols-3 gap-1">
+                            <button @click="activePriceLevel = 'Bawah'" :class="activePriceLevel === 'Bawah' ? 'bg-indigo-600 text-white font-bold' : 'bg-slate-100 text-slate-700'" class="py-2 rounded-xl border border-slate-200 transition">Bawah</button>
+                            <button @click="activePriceLevel = 'Menengah'" :class="activePriceLevel === 'Menengah' ? 'bg-indigo-600 text-white font-bold' : 'bg-slate-100 text-slate-700'" class="py-2 rounded-xl border border-slate-200 transition">Mid</button>
+                            <button @click="activePriceLevel = 'Atas'" :class="activePriceLevel === 'Atas' ? 'bg-indigo-600 text-white font-bold' : 'bg-slate-100 text-slate-700'" class="py-2 rounded-xl border border-slate-200 transition">Atas</button>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block font-semibold text-slate-700 mb-1">Mata Uang:</label>
+                        <select x-model="boqCurrency" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-slate-800 focus:outline-none">
+                            <option value="USD">USD ($)</option>
+                            <option value="IDR">IDR (Rp)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-3 gap-3 pt-2">
+                    <div class="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                        <span class="text-[10px] text-slate-400 block">Total Item MTO</span>
+                        <span class="text-sm font-bold text-[#82C341]" x-text="currentRows.length + ' Item'"></span>
+                    </div>
+                    <div class="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                        <span class="text-[10px] text-slate-400 block">Estimasi Direct Cost</span>
+                        <span class="text-sm font-bold text-indigo-600" x-text="formatCurrency(activePriceLevel === 'Bawah' ? 120000 : (activePriceLevel === 'Menengah' ? 145800 : 185000))"></span>
+                    </div>
+                    <div class="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                        <span class="text-[10px] text-slate-400 block">Biaya Las (Inch-Dia)</span>
+                        <span class="text-sm font-bold text-amber-600" x-text="formatCurrency(25000)"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex items-center justify-end space-x-2 pt-2 border-t border-slate-200">
+                <button @click="showBoqModal = false" class="px-4 py-2 bg-slate-200 text-slate-700 rounded-xl text-xs">Tutup</button>
+                <button @click="exportBOQ" class="px-4 py-2 bg-indigo-600 text-white font-semibold rounded-xl text-xs shadow">Download Laporan BOQ</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL APPROVAL / REVIEW -->
+    <div x-show="showApproveModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
+        <div class="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
+            <div class="flex items-center justify-between border-b border-slate-200 pb-3">
+                <h3 class="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center space-x-2">
+                    <i class="fa-solid fa-check-double text-sky-600"></i>
+                    <span>REVIEW & APPROVAL LAPORAN PROYEK</span>
+                </h3>
+                <button @click="showApproveModal = false" class="text-slate-400 hover:text-slate-800"><i class="fa-solid fa-xmark text-sm"></i></button>
+            </div>
+
+            <div class="space-y-3 text-xs text-slate-700">
+                <p>Keputusan peninjauan rekapitulasi data untuk Proyek <b class="text-slate-900" x-text="activeProject"></b>:</p>
+                
+                <div class="p-3 bg-sky-50 border border-sky-200 rounded-xl text-sky-700 space-y-1">
+                    <div><b>Lead Reviewer:</b> Lead Estimator</div>
+                    <div><b>Status Saat Ini:</b> Menunggu Keputusan Final</div>
+                </div>
+
+                <div class="space-y-1 pt-1">
+                    <label class="block font-bold text-slate-700">Catatan / Alasan Revisi:</label>
+                    <textarea id="reviewer-notes-textarea" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-sky-600" rows="3" placeholder="Berikan catatan, instruksi, atau koreksi untuk estimator..."></textarea>
+                </div>
+            </div>
+
+            <div class="flex items-center justify-end space-x-2 pt-3 border-t border-slate-200 flex-wrap gap-2">
+                <button @click="showApproveModal = false" class="px-3.5 py-2 bg-slate-200 text-slate-700 font-semibold rounded-xl text-xs hover:bg-slate-300 transition">Batal</button>
+                <button @click="handleMintaRevisi" class="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-xl text-xs transition">Minta Revisi</button>
+                <button @click="rejectData" class="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-xl text-xs transition">Reject</button>
+                <button @click="confirmApprove" class="px-3.5 py-2 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded-xl text-xs shadow transition">Approve</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL INFO MODULE / APPS -->
+    <div x-show="showModuleModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
+        <div class="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
+            <div class="flex items-center justify-between border-b border-slate-200 pb-3">
+                <h3 class="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center space-x-2">
+                    <i class="fa-solid fa-circle-info text-[#82C341]"></i>
+                    <span x-text="'MODUL: ' + activeModuleName"></span>
+                </h3>
+                <button @click="showModuleModal = false" class="text-slate-400 hover:text-slate-800"><i class="fa-solid fa-xmark text-sm"></i></button>
+            </div>
+
+            <div class="space-y-4 text-xs text-slate-700 max-h-[65vh] overflow-y-auto pr-1 custom-scrollbar">
+                
+                <!-- 1. TRAVEL -->
+                <template x-if="activeModuleName === 'Travel'">
+                    <div class="space-y-3">
+                        <div class="p-4 bg-sky-50 border border-sky-200 rounded-xl space-y-2">
+                            <div class="flex items-center justify-between">
+                                <span class="text-[10px] text-sky-700 font-bold uppercase tracking-wider">Perjalanan Dinas Aktif</span>
+                                <span class="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-bold rounded-full">Confirmed</span>
+                            </div>
+                            <div class="space-y-1">
+                                <div class="font-bold text-slate-800 text-sm">Jakarta (CGK) ➔ Yogyakarta (YIA)</div>
+                                <div class="text-[11px] text-slate-600"><i class="fa-regular fa-calendar mr-1"></i> Tanggal Berangkat: <b>15 Agustus 2026</b></div>
+                                <div class="text-[11px] text-slate-600"><i class="fa-solid fa-hotel mr-1"></i> Akomodasi: <b>Grand Aston Yogyakarta (Room 402)</b></div>
+                                <div class="text-[11px] text-slate-600"><i class="fa-solid fa-ticket mr-1"></i> Status Tiket: <b>E-Ticket Issued (GA-212)</b></div>
+                            </div>
+                        </div>
+
+                        <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
+                            <span class="font-bold text-slate-800 block">Form Pengajuan / Ubah Jadwal</span>
+                            <div class="grid grid-cols-2 gap-2">
+                                <input type="text" x-model="travelForm.destination" placeholder="Tujuan Kota" class="px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs">
+                                <input type="date" x-model="travelForm.date" class="px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs">
+                            </div>
+                            <button @click="submitTravelRequest" class="w-full py-2 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded-lg text-xs transition">Simpan / Ajukan Perjalanan</button>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- 2. CALENDAR -->
+                <template x-if="activeModuleName === 'Calendar'">
+                    <div class="space-y-3">
+                        <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
+                            <div class="flex items-center justify-between font-bold text-slate-800">
+                                <div class="flex items-center space-x-2">
+                                    <select x-model="calendarMonth" class="bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold focus:outline-none">
+                                        <template x-for="(mName, idx) in monthNames" :key="idx">
+                                            <option :value="idx" x-text="mName"></option>
+                                        </template>
+                                    </select>
+                                    <select x-model="calendarYear" class="bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold focus:outline-none">
+                                        <template x-for="yr in [2024, 2025, 2026, 2027, 2028]" :key="yr">
+                                            <option :value="yr" x-text="yr"></option>
+                                        </template>
+                                    </select>
+                                </div>
+                                <div class="space-x-1 text-xs text-slate-500">
+                                    <button @click="prevMonth()" class="px-2 py-1 bg-white border border-slate-300 rounded hover:bg-slate-100"><i class="fa-solid fa-chevron-left"></i></button>
+                                    <button @click="nextMonth()" class="px-2 py-1 bg-white border border-slate-300 rounded hover:bg-slate-100"><i class="fa-solid fa-chevron-right"></i></button>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-7 gap-1 text-center font-semibold text-[10px] text-slate-400 pb-1">
+                                <span>Min</span><span>Sen</span><span>Sel</span><span>Rab</span><span>Kam</span><span>Jum</span><span>Sab</span>
+                            </div>
+                            <div class="grid grid-cols-7 gap-1 text-center text-xs">
+                                <template x-for="blank in calendarFirstDayIndex">
+                                    <div></div>
+                                </template>
+                                <template x-for="d in calendarDaysInMonth" :key="d">
+                                    <div @click="selectCalendarDate(d)" 
+                                        :class="selectedCalendarDate === d ? 'bg-purple-600 text-white font-bold rounded-lg shadow' : 'hover:bg-slate-200 rounded text-slate-700'"
+                                        class="py-1.5 cursor-pointer transition font-medium" x-text="d"></div>
+                                </template>
+                            </div>
+                        </div>
+
+                        <div class="bg-purple-50 border border-purple-200 rounded-xl p-3 space-y-2">
+                            <span class="font-bold text-purple-900 block" x-text="'Agenda Tanggal: ' + selectedCalendarDate + ' ' + monthNames[calendarMonth] + ' ' + calendarYear"></span>
+                            <div class="flex space-x-2">
+                                <input type="text" x-model="newAgendaText" placeholder="Tambah agenda/kegiatan baru..." class="flex-1 px-3 py-1.5 bg-white border border-purple-300 rounded-lg text-xs">
+                                <button @click="addAgenda" class="px-3 py-1.5 bg-purple-600 text-white rounded-lg font-semibold text-xs hover:bg-purple-700">Simpan</button>
+                            </div>
+                            <div class="space-y-1 pt-1">
+                                <template x-for="(agend, aIdx) in (calendarAgendas[selectedCalendarDate + '-' + calendarMonth + '-' + calendarYear] || [])" :key="aIdx">
+                                    <div class="bg-white p-2 rounded-lg border border-purple-100 flex items-center justify-between text-xs">
+                                        <span x-text="agend"></span>
+                                        <button @click="removeAgenda(selectedCalendarDate + '-' + calendarMonth + '-' + calendarYear, aIdx)" class="text-rose-500 hover:text-rose-700"><i class="fa-solid fa-trash text-[10px]"></i></button>
+                                    </div>
+                                </template>
+                                <template x-if="!calendarAgendas[selectedCalendarDate + '-' + calendarMonth + '-' + calendarYear] || calendarAgendas[selectedCalendarDate + '-' + calendarMonth + '-' + calendarYear].length === 0">
+                                    <div class="text-[11px] text-slate-400 italic">Belum ada agenda pada tanggal ini.</div>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- 3. HR DOCS -->
+                <template x-if="activeModuleName === 'HR Docs'">
+                    <div class="space-y-3" x-data="{ hrTab: 'sk' }">
+                        <div class="grid grid-cols-3 gap-1 bg-slate-100 p-1 rounded-xl">
+                            <button @click="hrTab = 'sk'" :class="hrTab === 'sk' ? 'bg-white text-amber-700 font-bold shadow-sm' : 'text-slate-600'" class="py-1.5 rounded-lg text-xs transition">Surat SK</button>
+                            <button @click="hrTab = 'gaji'" :class="hrTab === 'gaji' ? 'bg-white text-amber-700 font-bold shadow-sm' : 'text-slate-600'" class="py-1.5 rounded-lg text-xs transition">Slip Gaji</button>
+                            <button @click="hrTab = 'sertif'" :class="hrTab === 'sertif' ? 'bg-white text-amber-700 font-bold shadow-sm' : 'text-slate-600'" class="py-1.5 rounded-lg text-xs transition">Sertifikat Pelatihan</button>
+                        </div>
+
+                        <div class="space-y-2 pt-1">
+                            <template x-if="hrTab === 'sk'">
+                                <div class="space-y-2">
+                                    <div class="p-2.5 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between">
+                                        <div class="flex items-center space-x-2">
+                                            <i class="fa-solid fa-file-contract text-amber-600 text-sm"></i>
+                                            <div>
+                                                <span class="text-xs font-bold text-slate-800 block">SK Pengangkatan Karyawan Tetap.pdf</span>
+                                                <span class="text-[9px] text-slate-400">Terbit: 12 Jan 2024</span>
+                                            </div>
+                                        </div>
+                                        <div class="space-x-1">
+                                            <button @click="alert('Pratinjau (Preview) Dokumen SK...')" class="px-2 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-[10px] font-semibold">Preview</button>
+                                            <button @click="alert('Mengunduh SK...')" class="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[10px] font-semibold">Unduh</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+
+                            <template x-if="hrTab === 'gaji'">
+                                <div class="space-y-2">
+                                    <div class="p-2.5 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between">
+                                        <div class="flex items-center space-x-2">
+                                            <i class="fa-solid fa-file-pdf text-rose-500 text-sm"></i>
+                                            <div>
+                                                <span class="text-xs font-bold text-slate-800 block">Slip_Gaji_Juli_2026.pdf</span>
+                                                <span class="text-[9px] text-slate-400">Diunggah 1 Agu 2026</span>
+                                            </div>
+                                        </div>
+                                        <div class="space-x-1">
+                                            <button @click="alert('Pratinjau (Preview) Slip Gaji...')" class="px-2 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-[10px] font-semibold">Preview</button>
+                                            <button @click="alert('Mengunduh Slip_Gaji_Juli_2026.pdf')" class="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[10px] font-semibold">Unduh</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+
+                            <template x-if="hrTab === 'sertif'">
+                                <div class="space-y-2">
+                                    <div class="p-2.5 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between">
+                                        <div class="flex items-center space-x-2">
+                                            <i class="fa-solid fa-award text-amber-600 text-sm"></i>
+                                            <div>
+                                                <span class="text-xs font-bold text-slate-800 block">Sertifikat_Piping_Design_Expert.pdf</span>
+                                                <span class="text-[9px] text-slate-400">Terbit: 15 Nov 2025</span>
+                                            </div>
+                                        </div>
+                                        <div class="space-x-1">
+                                            <button @click="alert('Pratinjau (Preview) Sertifikat...')" class="px-2 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-[10px] font-semibold">Preview</button>
+                                            <button @click="alert('Mengunduh Sertifikat...')" class="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[10px] font-semibold">Unduh</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- 4. POLICIES -->
+                <template x-if="activeModuleName === 'Policies'">
+                    <div class="space-y-3" x-data="{ policyFilter: 'Semua' }">
+                        <div class="flex items-center space-x-2">
+                            <button @click="policyFilter = 'Semua'" :class="policyFilter === 'Semua' ? 'bg-emerald-600 text-white font-bold' : 'bg-slate-100 text-slate-600'" class="px-2.5 py-1 rounded-lg text-[11px] transition">Semua</button>
+                            <button @click="policyFilter = 'SOP'" :class="policyFilter === 'SOP' ? 'bg-emerald-600 text-white font-bold' : 'bg-slate-100 text-slate-600'" class="px-2.5 py-1 rounded-lg text-[11px] transition">SOP</button>
+                            <button @click="policyFilter = 'Panduan'" :class="policyFilter === 'Panduan' ? 'bg-emerald-600 text-white font-bold' : 'bg-slate-100 text-slate-600'" class="px-2.5 py-1 rounded-lg text-[11px] transition">Panduan Teknis</button>
+                        </div>
+                        <div class="space-y-1.5">
+                            <template x-for="pol in policiesList.filter(p => policyFilter === 'Semua' || p.category === policyFilter)" :key="pol.id">
+                                <div class="p-2.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between hover:bg-slate-100">
+                                    <div>
+                                        <span class="font-semibold text-slate-800 block" x-text="pol.title"></span>
+                                        <span class="text-[10px] text-slate-400" x-text="'Kategori: ' + pol.category"></span>
+                                    </div>
+                                    <span class="text-[10px] font-bold px-2 py-0.5 rounded" :class="pol.status === 'Aktif' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-200 text-slate-600'" x-text="pol.status"></span>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- 5. FLOWS & PERF -->
+                <template x-if="activeModuleName === 'Flows'">
+                    <div class="space-y-3">
+                        <span class="text-[10px] uppercase font-bold text-slate-400 block">Tracker Pelacakan Pengajuan & Kinerja</span>
+                        <div class="space-y-2">
+                            <div class="p-3 bg-indigo-50 border border-indigo-200 rounded-xl space-y-2">
+                                <div class="flex items-center justify-between text-[11px] font-bold text-indigo-900">
+                                    <span>Pengajuan Cuti Tahunan (ID-8921)</span>
+                                    <span class="text-indigo-600 bg-white px-2 py-0.5 rounded border border-indigo-200">Proses Manager</span>
+                                </div>
+                                <div class="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                                    <div class="bg-indigo-600 h-full w-2/3"></div>
+                                </div>
+                                <div class="flex justify-between text-[9px] text-slate-500">
+                                    <span>Submit</span>
+                                    <span>HR (Selesai)</span>
+                                    <span class="font-bold text-indigo-600">Manager (Proses)</span>
+                                </div>
+                            </div>
+                            <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                                <div class="flex items-center justify-between text-[11px] font-bold text-slate-800">
+                                    <span>Klaim Reimbursement Medis</span>
+                                    <span class="text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">Approved</span>
+                                </div>
+                                <div class="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                                    <div class="bg-emerald-600 h-full w-full"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <template x-if="activeModuleName === 'Perf'">
+                    <div class="space-y-3">
+                        <div class="p-3 bg-rose-50 border border-rose-200 rounded-xl space-y-3">
+                            <div class="flex items-center justify-between">
+                                <span class="font-bold text-slate-800">Status Penilaian Kinerja (KPI 2026)</span>
+                                <span class="text-xs font-bold text-rose-600 bg-white px-2 py-0.5 rounded border border-rose-200">85% (Review Selesai)</span>
+                            </div>
+                            <div class="w-full bg-slate-200 h-2.5 rounded-full overflow-hidden">
+                                <div class="bg-rose-500 h-full w-[85%]"></div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2 pt-1 text-[11px]">
+                                <div class="bg-white p-2 rounded-lg border border-rose-100">
+                                    <span class="text-slate-400 block text-[9px]">Ketepatan MTO</span>
+                                    <b class="text-slate-800">95% Akurat</b>
+                                </div>
+                                <div class="bg-white p-2 rounded-lg border border-rose-100">
+                                    <span class="text-slate-400 block text-[9px]">Efisiensi Cost</span>
+                                    <b class="text-slate-800">Optimal</b>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <!-- 6. REVIEW ATTENDANCE & EXPLORE JOBS -->
+                <template x-if="activeModuleName === 'Attendance'">
+                    <div class="space-y-3">
+                        <div class="grid grid-cols-3 gap-2 text-center">
+                            <div class="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl">
+                                <span class="text-[10px] text-slate-500 block">Hadir</span>
+                                <span class="text-sm font-bold text-emerald-700">18 Hari</span>
+                            </div>
+                            <div class="p-2.5 bg-amber-50 border border-amber-200 rounded-xl">
+                                <span class="text-[10px] text-slate-500 block">Terlambat</span>
+                                <span class="text-sm font-bold text-amber-700">2 Hari</span>
+                            </div>
+                            <div class="p-2.5 bg-sky-50 border border-sky-200 rounded-xl">
+                                <span class="text-[10px] text-slate-500 block">Cuti</span>
+                                <span class="text-sm font-bold text-sky-700">1 Hari</span>
+                            </div>
+                        </div>
+                        <button @click="alert('Membuka riwayat log absensi harian...')" class="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl text-xs transition">Lihat Riwayat Log Absensi Harian</button>
+                    </div>
+                </template>
+
+                <template x-if="activeModuleName === 'Talent Referral'">
+                    <div class="space-y-3">
+                        <span class="text-[10px] uppercase font-bold text-slate-400 block">Lowongan Pekerjaan Internal Perusahaan</span>
+                        <div class="space-y-2">
+                            <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
+                                <div>
+                                    <span class="font-bold text-slate-800 block">Senior Piping Engineer</span>
+                                    <span class="text-[10px] text-slate-400">Lokasi: Jakarta HQ | Departemen: Engineering</span>
+                                </div>
+                                <button @click="alert('Berhasil melamar / mereferensikan posisi Senior Piping Engineer!')" class="px-3 py-1.5 bg-[#82C341] text-white font-semibold rounded-lg text-xs hover:opacity-90">Lamar Posisi</button>
+                            </div>
+                            <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
+                                <div>
+                                    <span class="font-bold text-slate-800 block">Lead Cost Estimator</span>
+                                    <span class="text-[10px] text-slate-400">Lokasi: Cilegon Site | Departemen: Proposal</span>
+                                </div>
+                                <button @click="alert('Berhasil melamar / mereferensikan posisi Lead Cost Estimator!')" class="px-3 py-1.5 bg-[#82C341] text-white font-semibold rounded-lg text-xs hover:opacity-90">Lamar Posisi</button>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+            </div>
+
+            <div class="flex items-center justify-end pt-2 border-t border-slate-200">
+                <button @click="showModuleModal = false" class="px-4 py-2 bg-[#82C341] text-white font-semibold rounded-xl text-xs shadow">Tutup</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- SCRIPT TAMBAHAN UNTUK LOCALSTORAGE & REVISI -->
+    <script>
+        let isSidebarCollapsed = false;
+        function toggleSidebar() {
+            const sidebar = document.getElementById('appSidebar');
+            const sidebarTexts = document.querySelectorAll('.sidebar-text');
+            const brandContainer = document.getElementById('sidebarBrandContainer');
+            
+            isSidebarCollapsed = !isSidebarCollapsed;
+            
+            if (isSidebarCollapsed) {
+                sidebar.classList.remove('w-64');
+                sidebar.classList.add('w-20');
+                sidebarTexts.forEach(el => el.classList.add('hidden'));
+                if (brandContainer) brandContainer.classList.add('justify-center');
+            } else {
+                sidebar.classList.remove('w-20');
+                sidebar.classList.add('w-64');
+                sidebarTexts.forEach(el => el.classList.remove('hidden'));
+                if (brandContainer) brandContainer.classList.remove('justify-center');
+            }
+        }
+
+    </script>
+    <script src="script.js"></script>
+</body>
+</html>

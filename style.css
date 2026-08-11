@@ -1,0 +1,321 @@
+[x-cloak] { display: none !important; }
+
+/* Posisi tengah untuk judul/nama tabel */
+.table-title-center, 
+.excel-table-container caption, 
+.text-center-title {
+    text-align: center !important;
+    width: 100%;
+    font-weight: bold;
+    margin-bottom: 10px;
+}
+
+/* Kontainer Utama Tabel */
+.excel-table-container {
+    max-height: 72vh;
+    width: 100%;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    position: relative;
+    background-color: #ffffff;
+    border-radius: 0.75rem;
+    display: block;
+}
+
+/* Tabel Dipaksa Melebar ke Samping */
+.excel-table {
+    width: max-content !important;
+    min-width: 1800px !important;
+    border-collapse: separate !important;
+    border-spacing: 0;
+    font-size: 11px;
+    color: #334155;
+}
+
+.excel-table th, .excel-table td {
+    padding: 6px 10px;
+    border-bottom: 1px solid #e2e8f0;
+    border-right: 1px solid #e2e8f0;
+    background-color: #ffffff;
+    white-space: nowrap;
+}
+
+/* Header TETAP BIASA (Tidak ada posisi sticky/freeze sama sekali) */
+.excel-table th {
+    background-color: #f1f5f9;
+    color: #0f172a;
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 10px;
+    position: static !important;
+    top: auto !important;
+    z-index: auto !important;
+}
+
+/* ==========================================================
+   MENGHILANGKAN SEMUA EFEK STICKY / FREEZE PADA KOLOM
+   ========================================================== */
+.sticky-col-no,
+.sticky-col-desc,
+.sticky-col-standard,
+.sticky-col-mfg,
+.sticky-col-material,
+th.sticky-col-no,
+th.sticky-col-desc,
+th.sticky-col-standard,
+th.sticky-col-mfg,
+th.sticky-col-material {
+    position: static !important;
+    left: auto !important;
+    top: auto !important;
+    z-index: auto !important;
+    background-color: #ffffff !important;
+    box-shadow: none !important;
+    width: auto !important;
+    min-width: unset !important;
+    max-width: none !important;
+}
+
+/* Header kembali menggunakan background normal */
+th.sticky-col-no,
+th.sticky-col-desc,
+th.sticky-col-standard,
+th.sticky-col-mfg,
+th.sticky-col-material {
+    background-color: #f1f5f9 !important;
+}
+
+/* Warna background saat baris disorot (hover) */
+.excel-table tbody tr:hover td {
+    background-color: #f8fafc !important;
+}
+
+.excel-input {
+    width: 100%;
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    padding: 2px 4px;
+    font-size: 11px;
+    color: #1e293b;
+}
+
+.excel-input:focus {
+    background-color: #ffffff;
+    border-color: #10b981;
+    outline: none;
+}
+
+/* --- PENGATURAN CETAK / PDF --- */
+@media print {
+    @page {
+        size: landscape;
+        margin: 1cm;
+    }
+
+    body * {
+        visibility: hidden !important;
+    }
+
+    .excel-table-container, 
+    .excel-table-container * {
+        visibility: visible !important;
+    }
+
+    .excel-table-container {
+        position: absolute !important;
+        left: 0 !important;
+        top: 0 !important;
+        width: 100% !important;
+        max-height: none !important;
+        overflow: visible !important;
+        border: none !important;
+        box-shadow: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    body, html {
+        background-color: white !important;
+        width: 100% !important;
+        height: auto !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    .excel-table {
+        width: 100% !important;
+        table-layout: auto !important;
+        border-collapse: collapse !important;
+        font-size: 9px !important;
+    }
+
+    .excel-table th, 
+    .excel-table td {
+        position: static !important;
+        background-color: transparent !important;
+        border: 1px solid #000 !important;
+        padding: 4px 6px !important;
+        white-space: normal !important;
+        color: #000 !important;
+    }
+
+    .excel-table th {
+        background-color: #e2e8f0 !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+        font-weight: bold !important;
+    }
+
+    .excel-input {
+        border: none !important;
+        background: transparent !important;
+        padding: 0 !important;
+        color: #000 !important;
+        font-size: 9px !important;
+    }
+}
+
+/* Workspace Shell & Card Settings */
+main,
+main > *,
+.workspace-shell,
+.workspace-table-card,
+.excel-table-container {
+    min-width: 0 !important;
+}
+
+.workspace-shell {
+    height: calc(100vh - 112px) !important;
+    min-height: 0 !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+}
+
+.workspace-table-card {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+    overflow-x: hidden !important;
+}
+
+.workspace-table-card .excel-table-container {
+    flex: 1 1 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    position: relative;
+}
+
+.workspace-table-card .excel-table {
+    width: max-content !important;
+    min-width: 1800px !important;
+    max-width: none !important;
+}
+
+/* ==========================================================
+   DEDICATED BOTTOM SCROLLBAR (SATU-SATUNYA PENGONTROL GESER KANAN-KIRI)
+   ========================================================== */
+
+.workspace-table-card .table-bottom-scrollbar {
+    display: block !important;
+    width: 100% !important;
+    height: 16px !important;
+    min-height: 16px !important;
+    max-height: 16px !important;
+    overflow-x: scroll !important;
+    overflow-y: hidden !important;
+    background: #e2e8f0;
+    border-top: 1px solid #cbd5e1;
+    border-bottom: 1px solid #e2e8f0;
+    flex-shrink: 0 !important;
+}
+
+.table-bottom-scrollbar-spacer {
+    height: 1px !important;
+    min-width: 1800px !important; /* Menyamai min-width dari .excel-table */
+}
+
+.workspace-table-card .table-bottom-scrollbar::-webkit-scrollbar {
+    height: 12px !important;
+}
+
+.workspace-table-card .table-bottom-scrollbar::-webkit-scrollbar-track {
+    background: #e2e8f0 !important;
+    border-radius: 7px !important;
+}
+
+.workspace-table-card .table-bottom-scrollbar::-webkit-scrollbar-thumb {
+    background: #64748b !important;
+    border-radius: 7px !important;
+    border: 2px solid #e2e8f0 !important;
+}
+
+.workspace-table-card .table-bottom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #475569 !important;
+}
+
+/* ==========================================================
+   FIX FINAL - SCROLLBAR HORIZONTAL DI BAWAH TABEL
+   ========================================================== */
+
+/* Area data tidak menampilkan scrollbar horizontal sendiri. */
+.excel-table-container {
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+}
+
+/* Scrollbar horizontal satu-satunya, tepat di bawah tabel. */
+.table-bottom-scrollbar {
+    display: block !important;
+    width: 100% !important;
+    height: 17px !important;
+    min-height: 17px !important;
+    max-height: 17px !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    background: #e5eaf0 !important;
+    border-top: 1px solid #d5dde7 !important;
+    box-sizing: border-box !important;
+    flex: 0 0 17px !important;
+    scrollbar-width: auto !important;
+    scrollbar-color: #7b8798 #e5eaf0 !important;
+}
+
+.table-bottom-scrollbar-spacer {
+    display: block !important;
+    height: 1px !important;
+    min-height: 1px !important;
+    width: 1800px;
+}
+
+/* Chrome / Edge */
+.table-bottom-scrollbar::-webkit-scrollbar {
+    height: 12px !important;
+}
+
+.table-bottom-scrollbar::-webkit-scrollbar-track {
+    background: #e5eaf0 !important;
+}
+
+.table-bottom-scrollbar::-webkit-scrollbar-thumb {
+    background: #7b8798 !important;
+    border-radius: 6px !important;
+    border: 2px solid #e5eaf0 !important;
+}
+
+.table-bottom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #5f6b7a !important;
+}
+
+/* Jangan tampilkan scrollbar horizontal bawaan tabel. */
+.excel-table-container::-webkit-scrollbar:horizontal {
+    height: 0 !important;
+}
