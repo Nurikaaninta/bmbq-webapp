@@ -293,7 +293,7 @@
                     </div>
 
                     <!-- TABEL DATA -->
-                    <div class="bg-white border border-slate-200 rounded-2xl shadow-sm flex flex-col overflow-hidden">
+                    <div class="workspace-table-card bg-white border border-slate-200 rounded-2xl shadow-sm flex flex-col overflow-hidden">
                         <div class="p-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-4">
                             <div class="flex items-center space-x-3 flex-wrap gap-2">
                                 <span class="text-xs font-bold text-slate-800" x-text="'Proyek: ' + activeProject + ' | Sheet: ' + activeSheet"></span>
@@ -331,24 +331,91 @@
                         </div>
 
                         <!-- KONTEN TABEL DENGAN CUSTOM SCROLLBAR -->
-                        <div class="excel-table-container custom-scrollbar">
-                            <table class="excel-table">
+                        <div class="excel-table-container custom-scrollbar" x-ref="tableScroll" @scroll="syncTableBottomScroll($event)" :key="'table-container-' + tableRenderKey">
+                            <table class="excel-table" :key="'table-' + tableRenderKey">
                                 <thead>
                                     <tr>
+                                        <!-- 5 KOLOM FREEZE -->
                                         <th class="sticky-col-no">No</th>
-                                        <th class="sticky-col-desc">Long Description (Family)</th>
-                                        <th class="sticky-col-standard">Compatible Standard</th>
-                                        <th class="sticky-col-mfg">Manufacturer</th>
-                                        
-                                        <template x-for="col in currentColumns.filter(c => c !== 'Long Description (Family)' && c !== 'Compatible Standard' && c !== 'Manufacturer')" :key="col">
-                                            <th :title="col" x-text="col" style="min-width: 130px;"></th>
+
+                                        <th class="sticky-col-desc">
+                                            <div class="filter-header-content">
+                                                <span title="Long Description (Family)">Long Description (Family)</span>
+                                                <button type="button"
+                                                        class="column-filter-btn"
+                                                        :class="{ 'is-active': isColumnFiltered('Long Description (Family)') }"
+                                                        @click.stop="openColumnFilter('Long Description (Family)', $event)"
+                                                        title="Filter Long Description (Family)">
+                                                    <i class="fa-solid fa-filter"></i>
+                                                </button>
+                                            </div>
+                                        </th>
+
+                                        <th class="sticky-col-mfg">
+                                            <div class="filter-header-content">
+                                                <span>Manufacturer</span>
+                                                <button type="button"
+                                                        class="column-filter-btn"
+                                                        :class="{ 'is-active': isColumnFiltered('Manufacturer') }"
+                                                        @click.stop="openColumnFilter('Manufacturer', $event)"
+                                                        title="Filter Manufacturer">
+                                                    <i class="fa-solid fa-filter"></i>
+                                                </button>
+                                            </div>
+                                        </th>
+
+                                        <th class="sticky-col-material">
+                                            <div class="filter-header-content">
+                                                <span>Material</span>
+                                                <button type="button"
+                                                        class="column-filter-btn"
+                                                        :class="{ 'is-active': isColumnFiltered('Material') }"
+                                                        @click.stop="openColumnFilter('Material', $event)"
+                                                        title="Filter Material">
+                                                    <i class="fa-solid fa-filter"></i>
+                                                </button>
+                                            </div>
+                                        </th>
+
+                                        <th class="sticky-col-material-code">
+                                            <div class="filter-header-content">
+                                                <span>Material Code</span>
+                                                <button type="button"
+                                                        class="column-filter-btn"
+                                                        :class="{ 'is-active': isColumnFiltered('Material Code') }"
+                                                        @click.stop="openColumnFilter('Material Code', $event)"
+                                                        title="Filter Material Code">
+                                                    <i class="fa-solid fa-filter"></i>
+                                                </button>
+                                            </div>
+                                        </th>
+
+                                        <!-- SEMUA KOLOM LAINNYA BERGERAK DI BELAKANG AREA FREEZE -->
+                                        <template x-for="col in currentColumns.filter(c => ![
+                                            'Long Description (Family)',
+                                            'Manufacturer',
+                                            'Material',
+                                            'Material Code'
+                                        ].includes(c))" :key="tableRenderKey + '-col-' + col">
+                                            <th :title="col" style="min-width: 130px;">
+                                                <div class="filter-header-content">
+                                                    <span x-text="col"></span>
+                                                    <button type="button"
+                                                            class="column-filter-btn"
+                                                            :class="{ 'is-active': isColumnFiltered(col) }"
+                                                            @click.stop="openColumnFilter(col, $event)"
+                                                            :title="'Filter ' + col">
+                                                        <i class="fa-solid fa-filter"></i>
+                                                    </button>
+                                                </div>
+                                            </th>
                                         </template>
-                                        <th x-show="loginForm.role === 'Piping Engineer'" style="min-width: 80px;">Aksi</th>
+                                        <th x-show="loginForm.role === 'Piping Engineer'" style="min-width: 150px;">Aksi</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <template x-for="(row, index) in paginatedRows" :key="index">
-                                        <tr :class="{'inline-new-row': row.Status === 'New' && !row.__savedBeforeAdd}">
+                                    <template x-for="(row, index) in (addingNewData ? [...paginatedRows, newInlineRow] : paginatedRows)" :key="tableRenderKey + '-row-' + index">
+                                        <tr :class="{'inline-new-row': row.__inlineDraft}">
                                             <td class="sticky-col-no font-mono text-[#82C341] font-semibold text-center"
                                                 x-text="String((currentPage - 1) * itemsPerPage + index + 1).padStart(2, '0')">
                                             </td>
@@ -357,29 +424,135 @@
                                                 <input type="text" x-model="row['Long Description (Family)']" :disabled="loginForm.role !== 'Piping Engineer'" @change="markRowEdited(row)" class="excel-input text-left">
                                             </td>
 
-                                            <td class="sticky-col-standard text-center">
-                                                <input type="text" x-model="row['Compatible Standard']" :disabled="loginForm.role !== 'Piping Engineer'" @change="markRowEdited(row)" class="excel-input text-center">
-                                            </td>
-
                                             <td class="sticky-col-mfg text-center">
                                                 <input type="text" x-model="row['Manufacturer']" :disabled="loginForm.role !== 'Piping Engineer'" @change="markRowEdited(row)" class="excel-input text-center">
                                             </td>
-                                            
-                                            <template x-for="col in currentColumns.filter(c => c !== 'Long Description (Family)' && c !== 'Compatible Standard' && c !== 'Manufacturer')" :key="col">
+
+                                            <td class="sticky-col-material text-center">
+                                                <input type="text" x-model="row['Material']" :disabled="loginForm.role !== 'Piping Engineer'" @change="markRowEdited(row)" class="excel-input text-center">
+                                            </td>
+
+                                            <td class="sticky-col-material-code text-center">
+                                                <input type="text" x-model="row['Material Code']" :disabled="loginForm.role !== 'Piping Engineer'" @change="markRowEdited(row)" class="excel-input text-center">
+                                            </td>
+
+                                            <!-- SEMUA KOLOM LAINNYA BERGERAK DI BELAKANG AREA FREEZE -->
+                                            <template x-for="col in currentColumns.filter(c => ![
+                                                'Long Description (Family)',
+                                                'Manufacturer',
+                                                'Material',
+                                                'Material Code'
+                                            ].includes(c))" :key="tableRenderKey + '-col-' + col">
                                                 <td style="min-width: 130px;">
                                                     <input type="text" x-model="row[col]" :disabled="loginForm.role !== 'Piping Engineer'" @change="markRowEdited(row)" class="excel-input text-center">
                                                 </td>
                                             </template>
 
-                                            <td class="text-center" x-show="loginForm.role === 'Piping Engineer'" style="min-width: 80px;">
-                                                <button @click="deleteRow(index)" class="px-2 py-1 bg-rose-100 hover:bg-rose-200 text-rose-600 rounded-lg text-[10px] transition" title="Hapus Baris">
-                                                    <i class="fa-solid fa-trash-can"></i>
-                                                </button>
+                                            <td class="text-center" x-show="loginForm.role === 'Piping Engineer'" style="min-width: 150px;">
+                                                <template x-if="addingNewData && row.__inlineDraft">
+                                                    <div class="flex items-center justify-center gap-1">
+                                                        <button @click="saveInlineAdd()" class="px-2 py-1 bg-[#82C341] hover:opacity-90 text-white rounded-lg text-[10px] font-semibold transition" title="Simpan data">
+                                                            <i class="fa-solid fa-check"></i> Simpan
+                                                        </button>
+                                                        <button @click="cancelInlineAdd()" class="px-2 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-[10px] font-semibold transition" title="Batal">
+                                                            Batal
+                                                        </button>
+                                                    </div>
+                                                </template>
+                                                <template x-if="!row.__inlineDraft">
+                                                    <button @click="deleteRow(index)" class="px-2 py-1 bg-rose-100 hover:bg-rose-200 text-rose-600 rounded-lg text-[10px] transition" title="Hapus Baris">
+                                                        <i class="fa-solid fa-trash-can"></i>
+                                                    </button>
+                                                </template>
                                             </td>
                                         </tr>
                                     </template>
                                 </tbody>
                             </table>
+                        </div>
+
+                        <!-- SCROLLBAR HORIZONTAL KHUSUS TABEL -->
+                        <div class="table-bottom-scrollbar" x-ref="tableBottomScrollbar" @scroll="syncBottomTableScroll($event)" aria-label="Geser tabel ke kanan dan kiri">
+                            <div class="table-bottom-scrollbar-spacer" x-ref="tableBottomScrollbarSpacer"></div>
+                        </div>
+
+                        <!-- POPUP FILTER KOLOM GAYA EXCEL -->
+                        <div x-cloak
+                             x-show="filterPopupOpen"
+                             x-transition
+                             class="column-filter-popup"
+                             :style="`left:${filterPopupPosition.left}px; top:${filterPopupPosition.top}px;`"
+                             @click.stop
+                             @click.outside="closeColumnFilter()"
+                             @keydown.escape.window="closeColumnFilter()">
+
+                            <div class="column-filter-popup-header">
+                                <div class="min-w-0">
+                                    <div class="column-filter-popup-title">Filter</div>
+                                    <div class="column-filter-popup-column" x-text="activeFilterColumn"></div>
+                                </div>
+                                <button type="button" class="column-filter-close" @click="closeColumnFilter()" title="Tutup">
+                                    <i class="fa-solid fa-xmark"></i>
+                                </button>
+                            </div>
+
+                            <div class="column-filter-search">
+                                <i class="fa-solid fa-magnifying-glass"></i>
+                                <input type="text"
+                                       x-model="filterOptionSearch"
+                                       placeholder="Search"
+                                       autocomplete="off">
+                            </div>
+
+                            <div class="column-filter-actions">
+                                <label class="column-filter-check-all">
+                                    <input type="checkbox"
+                                           :checked="allFilterValuesSelected"
+                                           @change="toggleAllFilterValues()">
+                                    <span>(Select All)</span>
+                                </label>
+                                <span class="column-filter-count"
+                                      x-text="`${filterDraftValues.length} dipilih`"></span>
+                            </div>
+
+                            <div class="column-filter-options">
+                                <template x-if="filteredFilterOptions.length === 0">
+                                    <div class="column-filter-empty">Tidak ada nilai yang cocok.</div>
+                                </template>
+
+                                <template x-for="value in filteredFilterOptions" :key="'filter-option-' + activeFilterColumn + '-' + value">
+                                    <label class="column-filter-option">
+                                        <input type="checkbox"
+                                               :value="value"
+                                               x-model="filterDraftValues">
+                                        <span x-text="filterDisplayValue(value)"></span>
+                                    </label>
+                                </template>
+
+                                <div x-show="filteredFilterOptions.length >= 300" class="column-filter-limit">
+                                    Gunakan Search untuk menemukan nilai lainnya.
+                                </div>
+                            </div>
+
+                            <div class="column-filter-footer">
+                                <button type="button"
+                                        class="column-filter-reset"
+                                        @click="clearColumnFilter()">
+                                    Clear Filter
+                                </button>
+                                <div class="column-filter-footer-right">
+                                    <button type="button"
+                                            class="column-filter-cancel"
+                                            @click="closeColumnFilter()">
+                                        Cancel
+                                    </button>
+                                    <button type="button"
+                                            class="column-filter-apply"
+                                            @click="applyColumnFilter()">
+                                        OK
+                                    </button>
+                                </div>
+                            </div>
                         </div>
 
                         <!-- INFORMASI BARIS + TAMBAH DATA + PAGINATION -->
@@ -1244,6 +1417,6 @@
         }
 
     </script>
-    <script src="script.js"></script>
+    <script src="script.js?v=10"></script>
 </body>
 </html>

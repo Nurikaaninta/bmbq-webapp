@@ -25,6 +25,21 @@ function appData() {
         globalSearch: '',
         currentPage: 1,
         itemsPerPage: 15,
+        tableRenderKey: 0,
+
+        // Filter per kolom seperti Excel.
+        // Key = nama kolom, value = daftar nilai yang dipilih.
+        columnFilters: {},
+        filterPopupOpen: false,
+        activeFilterColumn: '',
+        filterOptionSearch: '',
+        filterOptions: [],
+        filterDraftValues: [],
+        filterPopupPosition: { left: 0, top: 0 },
+
+        // Mode input data langsung di tabel.
+        addingNewData: false,
+        newInlineRow: {},
 
         showAddModal: false,
         showBoqModal: false,
@@ -305,6 +320,8 @@ function appData() {
         switchProject() {
             this.currentPage = 1;
             this.globalSearch = '';
+            this.columnFilters = {};
+            this.closeColumnFilter();
         },
 
         // ==========================================================
@@ -618,13 +635,47 @@ function appData() {
 
         get filteredRows() {
             let rows = this.currentRows;
+
+            // Search global tetap bekerja seperti sebelumnya.
             if (this.globalSearch) {
-                const q = this.globalSearch.toLowerCase();
-                rows = rows.filter(row => 
-                    Object.values(row).some(val => String(val).toLowerCase().includes(q))
-                );
+                const q = this.globalSearch.toLowerCase().trim();
+                if (q) {
+                    rows = rows.filter(row =>
+                        Object.values(row || {}).some(val =>
+                            String(val ?? '').toLowerCase().includes(q)
+                        )
+                    );
+                }
             }
+
+            // Filter per kolom.
+            Object.entries(this.columnFilters || {}).forEach(([column, selectedValues]) => {
+                if (!Array.isArray(selectedValues)) return;
+
+                rows = rows.filter(row => {
+                    const rawValue = row?.[column];
+                    const normalized = this.normalizeFilterValue(rawValue);
+                    return selectedValues.includes(normalized);
+                });
+            });
+
             return rows;
+        },
+
+        get filteredFilterOptions() {
+            const q = String(this.filterOptionSearch || '').toLowerCase().trim();
+            const source = Array.isArray(this.filterOptions) ? this.filterOptions : [];
+
+            if (!q) return source.slice(0, 300);
+
+            return source
+                .filter(value => this.filterDisplayValue(value).toLowerCase().includes(q))
+                .slice(0, 300);
+        },
+
+        get allFilterValuesSelected() {
+            return this.filterOptions.length > 0 &&
+                this.filterOptions.every(value => this.filterDraftValues.includes(value));
         },
 
         get maxPage() {
@@ -636,11 +687,149 @@ function appData() {
             return this.filteredRows.slice(start, start + this.itemsPerPage);
         },
 
-        openDataSheet(sheetName) {
+        normalizeFilterValue(value) {
+            const text = String(value ?? '').trim();
+            return text === '' ? '__EMPTY__' : text;
+        },
+
+        filterDisplayValue(value) {
+            return value === '__EMPTY__' ? '(Kosong)' : String(value);
+        },
+
+        isColumnFiltered(column) {
+            return Object.prototype.hasOwnProperty.call(this.columnFilters || {}, column);
+        },
+
+        getColumnFilterOptions(column) {
+            const seen = new Set();
+            const values = [];
+
+            (this.currentRows || []).forEach(row => {
+                const value = this.normalizeFilterValue(row?.[column]);
+                if (!seen.has(value)) {
+                    seen.add(value);
+                    values.push(value);
+                }
+            });
+
+            values.sort((a, b) => {
+                if (a === '__EMPTY__') return 1;
+                if (b === '__EMPTY__') return -1;
+                return String(a).localeCompare(String(b), undefined, {
+                    numeric: true,
+                    sensitivity: 'base'
+                });
+            });
+
+            return values;
+        },
+
+        openColumnFilter(column, event) {
+            if (!column) return;
+
+            this.activeFilterColumn = column;
+            this.filterOptionSearch = '';
+            this.filterOptions = this.getColumnFilterOptions(column);
+
+            // Jika belum pernah difilter, semua nilai dipilih.
+            // Jika sudah pernah difilter, popup membuka pilihan terakhir.
+            if (this.isColumnFiltered(column)) {
+                this.filterDraftValues = [...(this.columnFilters[column] || [])];
+            } else {
+                this.filterDraftValues = [...this.filterOptions];
+            }
+
+            const button = event?.currentTarget || event?.target;
+            const rect = button?.getBoundingClientRect?.();
+
+            if (rect) {
+                const popupWidth = 300;
+                const popupHeight = Math.min(430, window.innerHeight - 24);
+                let left = rect.left;
+                let top = rect.bottom + 6;
+
+                if (left + popupWidth > window.innerWidth - 12) {
+                    left = Math.max(12, window.innerWidth - popupWidth - 12);
+                }
+
+                if (top + popupHeight > window.innerHeight - 12) {
+                    top = Math.max(12, rect.top - popupHeight - 6);
+                }
+
+                this.filterPopupPosition = { left, top };
+            }
+
+            this.filterPopupOpen = true;
+        },
+
+        closeColumnFilter() {
+            this.filterPopupOpen = false;
+            this.filterOptionSearch = '';
+        },
+
+        toggleAllFilterValues() {
+            if (this.allFilterValuesSelected) {
+                this.filterDraftValues = [];
+            } else {
+                this.filterDraftValues = [...this.filterOptions];
+            }
+        },
+
+        clearColumnFilter(column = this.activeFilterColumn) {
+            if (!column) return;
+
+            const next = { ...(this.columnFilters || {}) };
+            delete next[column];
+            this.columnFilters = next;
+            this.currentPage = 1;
+            this.filterPopupOpen = false;
+            this.tableRenderKey++;
+
+            this.$nextTick(() => this.updateTableScrollbar());
+        },
+
+        applyColumnFilter() {
+            const column = this.activeFilterColumn;
+            if (!column) return;
+
+            const selected = [...this.filterDraftValues];
+            const allSelected =
+                this.filterOptions.length > 0 &&
+                selected.length === this.filterOptions.length;
+
+            const next = { ...(this.columnFilters || {}) };
+
+            if (allSelected) {
+                delete next[column];
+            } else {
+                next[column] = selected;
+            }
+
+            this.columnFilters = next;
+            this.currentPage = 1;
+            this.filterPopupOpen = false;
+            this.tableRenderKey++;
+
+            this.$nextTick(() => this.updateTableScrollbar());
+        },
+
+        resetAllColumnFilters() {
+            this.columnFilters = {};
+            this.currentPage = 1;
+            this.filterPopupOpen = false;
+            this.filterOptionSearch = '';
+            this.tableRenderKey++;
+
+            this.$nextTick(() => this.updateTableScrollbar());
+        },
+
+                openDataSheet(sheetName) {
         this.activeSheet = sheetName;
         this.currentDashboardTab = 'workspace';
         this.currentPage = 1;
         this.globalSearch = '';
+        this.columnFilters = {};
+        this.closeColumnFilter();
 
         this.$nextTick(() => {
             this.updateTableScrollbar();
@@ -683,46 +872,108 @@ function appData() {
             const sheet = this.activeSheet;
             if (!Array.isArray(project[sheet])) project[sheet] = [];
 
-            const rows = project[sheet];
-            const nextNum = String(rows.length + 1).padStart(2, '0');
-
-            const newRow = {
+            /*
+             * MODE TAMBAH DATA INLINE:
+             * Data lama TIDAK dihapus dari storage.
+             * Saat tombol Add data diklik, tabel sementara hanya
+             * menampilkan SATU BARIS KOSONG untuk diisi langsung.
+             */
+            const nextNum = String(project[sheet].length + 1).padStart(2, '0');
+            const draft = {
                 Number: nextNum,
                 'Long Description (Family)': '',
                 'Compatible Standard': '',
                 Manufacturer: '',
-                Material: '',
-                'Material Code': '',
-                Spec: '',
-                Size: '',
-                'Pressure Class': '',
-                'Fluid Service': '',
-                'Line Number Tag': '',
-                'Support Type': '',
-                Qty: '',
-                Unit: '',
-                'Waste Factor': '',
-                'Shop/Field': '',
-                Status: 'New'
+                Status: 'New',
+                __inlineDraft: true
             };
 
-            (this.currentColumns || []).forEach(col => {
-                if (!(col in newRow)) newRow[col] = '';
+            // Ambil SEMUA kolom sheet yang sedang aktif.
+            const columns = this.currentColumns || [];
+            columns.forEach(col => {
+                if (!(col in draft)) draft[col] = '';
             });
 
-            rows.push(newRow);
+            this.newInlineRow = draft;
+            this.addingNewData = true;
             this.globalSearch = '';
-            this.currentPage = Math.max(1, Math.ceil(rows.length / this.itemsPerPage));
-            this.saveStorage();
+            this.currentPage = 1;
+            this.tableRenderKey++;
 
             this.$nextTick(() => {
                 this.updateTableScrollbar();
-                const tableRows = document.querySelectorAll('.excel-table tbody tr');
-                const lastRow = tableRows[tableRows.length - 1];
-                const firstInput = lastRow?.querySelector('input');
-                if (firstInput) firstInput.focus();
+
+                const firstInput = document.querySelector(
+                    '.excel-table tbody tr.inline-new-row input'
+                );
+
+                if (firstInput) {
+                    firstInput.focus();
+                    firstInput.select?.();
+                }
             });
         },
+
+        cancelInlineAdd() {
+            // Batalkan hanya baris draft. Semua data lama tetap ada.
+            this.addingNewData = false;
+            this.newInlineRow = {};
+            this.tableRenderKey++;
+            this.$nextTick(() => this.updateTableScrollbar());
+        },
+
+        saveInlineAdd() {
+            if (this.loginForm.role !== 'Piping Engineer') {
+                alert('Akses ditolak! Hanya Piping Engineer yang dapat menambah data.');
+                return;
+            }
+
+            if (!this.addingNewData || !this.newInlineRow) return;
+
+            const draft = { ...this.newInlineRow };
+            delete draft.__inlineDraft;
+            delete draft.__edited;
+
+            const hasValue = Object.entries(draft).some(([key, value]) => {
+                return key !== 'Number' && String(value ?? '').trim() !== '';
+            });
+
+            if (!hasValue) {
+                alert('Silakan isi minimal satu data pada baris baru.');
+                return;
+            }
+
+            const rows = this.currentRows;
+
+            // Nomor mengikuti jumlah data terakhir.
+            draft.Number = String(rows.length + 1).padStart(2, '0');
+            draft.Status = draft.Status || 'New';
+
+            rows.push(draft);
+
+            // Rapikan nomor setelah penambahan.
+            rows.forEach((row, idx) => {
+                row.Number = String(idx + 1).padStart(2, '0');
+            });
+
+            this.saveStorage();
+
+            this.addingNewData = false;
+            this.newInlineRow = {};
+            this.currentPage = Math.max(1, Math.ceil(rows.length / this.itemsPerPage));
+            this.tableRenderKey++;
+
+            this.$nextTick(() => {
+                this.updateTableScrollbar();
+            });
+        },
+
+        markRowEdited(row) {
+            if (!row) return;
+            row.__edited = true;
+            this.saveStorage();
+        },
+
         resetNewRowForm() {
             this.newRowForm = {
                 longDesc: '', material: 'CS', spec: 'CS150', size: '2"', pressure: '150',
@@ -734,78 +985,214 @@ function appData() {
             this.activeSheet = sheetName;
             this.currentPage = 1;
             this.globalSearch = '';
+            this.columnFilters = {};
+            this.closeColumnFilter();
+            this.tableRenderKey++;
             this.$nextTick(() => this.updateTableScrollbar());
         },
 
         updateTableScrollbar() {
             this.$nextTick(() => {
-                const container = this.$refs?.tableScroll;
-                const table = container?.querySelector('.excel-table');
-                const spacer = this.$refs?.tableBottomScrollbarSpacer;
-                const bottom = this.$refs?.tableBottomScrollbar;
+                const container =
+                    this.$refs?.tableScroll ||
+                    document.querySelector('.workspace-table-card .excel-table-container');
 
-                if (!container || !table || !spacer || !bottom) return;
+                const table =
+                    container?.querySelector('.excel-table');
 
-                const tableWidth = Math.max(
-                    table.scrollWidth,
-                    table.offsetWidth,
-                    table.getBoundingClientRect().width,
-                    1800
+                const bottom =
+                    this.$refs?.tableBottomScrollbar ||
+                    document.querySelector('.workspace-table-card .table-bottom-scrollbar');
+
+                const spacer =
+                    this.$refs?.tableBottomScrollbarSpacer ||
+                    document.querySelector('.workspace-table-card .table-bottom-scrollbar-spacer');
+
+                if (!container || !table || !bottom || !spacer) return;
+
+                /*
+                 * FREEZE 5 KOLOM:
+                 * No -> Long Description -> Manufacturer -> Material -> Material Code.
+                 *
+                 * Offset dihitung dari lebar aktual header, bukan angka hard-code.
+                 * Dengan begitu kolom freeze tidak saling menumpuk pada layar berbeda.
+                 */
+                const freezeHeaders = [
+                    table.querySelector('thead th.sticky-col-no'),
+                    table.querySelector('thead th.sticky-col-desc'),
+                    table.querySelector('thead th.sticky-col-mfg'),
+                    table.querySelector('thead th.sticky-col-material'),
+                    table.querySelector('thead th.sticky-col-material-code')
+                ];
+
+                let freezeLeft = 0;
+                const freezeOffsets = [];
+
+                freezeHeaders.forEach((cell) => {
+                    const width = cell ? cell.getBoundingClientRect().width : 0;
+                    freezeOffsets.push(freezeLeft);
+                    freezeLeft += width;
+                });
+
+                table.style.setProperty('--freeze-no-left', `${freezeOffsets[0] || 0}px`);
+                table.style.setProperty('--freeze-desc-left', `${freezeOffsets[1] || 0}px`);
+                table.style.setProperty('--freeze-mfg-left', `${freezeOffsets[2] || 0}px`);
+                table.style.setProperty('--freeze-material-left', `${freezeOffsets[3] || 0}px`);
+                table.style.setProperty('--freeze-material-code-left', `${freezeOffsets[4] || 0}px`);
+
+                /*
+                 * HITUNG LEBAR TABEL DARI SEMUA KOLOM YANG BENAR-BENAR
+                 * TER-RENDER. TIDAK ADA ANGKA 0px / BATAS KOLOM.
+                 */
+                const headerCells = Array.from(
+                    table.querySelectorAll('thead tr:first-child > th')
                 );
 
-                spacer.style.width = tableWidth + 'px';
+                let naturalTableWidth = headerCells.reduce((total, cell) => {
+                    const rect = cell.getBoundingClientRect();
+                    return total + Math.ceil(rect.width);
+                }, 0);
 
-                // Tampilkan scrollbar hanya jika tabel lebih lebar dari viewport.
-                bottom.style.display =
-                    tableWidth > container.clientWidth + 1 ? 'block' : 'none';
+                // Fallback jika header belum tersedia.
+                if (!naturalTableWidth) {
+                    naturalTableWidth = Math.ceil(
+                        Math.max(table.scrollWidth, table.offsetWidth)
+                    );
+                }
 
-                bottom.scrollLeft = container.scrollLeft || 0;
+                // Ambil juga lebar baris terbesar yang sudah dirender.
+                const renderedRows = Array.from(
+                    table.querySelectorAll('tbody tr')
+                );
+
+                renderedRows.forEach(row => {
+                    const cells = Array.from(row.children);
+                    const rowWidth = cells.reduce((total, cell) => {
+                        return total + Math.ceil(cell.getBoundingClientRect().width);
+                    }, 0);
+                    naturalTableWidth = Math.max(naturalTableWidth, rowWidth);
+                });
+
+                const tableWidth = Math.max(
+                    naturalTableWidth,
+                    Math.ceil(table.scrollWidth),
+                    Math.ceil(table.offsetWidth)
+                );
+
+                /*
+                 * Paksa tabel memakai total lebar seluruh kolomnya.
+                 * max-content memastikan kolom hasil import tidak dipotong.
+                 */
+                table.style.width = `${tableWidth}px`;
+                table.style.minWidth = `${tableWidth}px`;
+                table.style.maxWidth = 'none';
+
+                spacer.style.width = `${tableWidth}px`;
+                spacer.style.minWidth = `${tableWidth}px`;
+                spacer.style.maxWidth = 'none';
+
+                bottom.style.display = 'block';
+
+                // Jangan pernah membatasi scroll ke angka tetap.
+                const maxScroll = Math.max(
+                    0,
+                    tableWidth - container.clientWidth
+                );
+
+                if (container.scrollLeft > maxScroll) {
+                    container.scrollLeft = maxScroll;
+                }
+
+                if (Math.abs(bottom.scrollLeft - container.scrollLeft) > 0.5) {
+                    bottom.scrollLeft = container.scrollLeft;
+                }
             });
         },
 
         syncTableBottomScroll(event) {
-            const container = this.$refs?.tableScroll;
-            if (!container) return;
+            const container =
+                this.$refs?.tableScroll ||
+                document.querySelector('.workspace-table-card .excel-table-container');
 
-            if (container.scrollLeft !== event.target.scrollLeft) {
-                container.scrollLeft = event.target.scrollLeft;
+            const bottom =
+                this.$refs?.tableBottomScrollbar ||
+                document.querySelector('.workspace-table-card .table-bottom-scrollbar');
+
+            if (!container || !bottom) return;
+
+            const left = event.target.scrollLeft;
+
+            // Tabel -> scrollbar bawah
+            if (Math.abs(bottom.scrollLeft - left) > 0.5) {
+                bottom.scrollLeft = left;
             }
         },
 
         syncBottomTableScroll(event) {
-            const bottom = this.$refs?.tableBottomScrollbar;
-            if (!bottom) return;
+            const bottom =
+                this.$refs?.tableBottomScrollbar ||
+                document.querySelector('.workspace-table-card .table-bottom-scrollbar');
 
-            if (bottom.scrollLeft !== event.target.scrollLeft) {
-                bottom.scrollLeft = event.target.scrollLeft;
-            }
+            const container =
+                this.$refs?.tableScroll ||
+                document.querySelector('.workspace-table-card .excel-table-container');
+
+            if (!bottom || !container) return;
+
+            // Scrollbar bawah -> TABEL
+            container.scrollLeft = event.target.scrollLeft;
         },
 
+
         importExcelFile(event) {
-            const file = event.target.files[0];
+            const input = event?.target;
+            const file = input?.files?.[0];
             if (!file) return;
+
+            const resetInput = () => {
+                if (input) input.value = '';
+            };
 
             const reader = new FileReader();
 
             reader.onload = (e) => {
                 try {
-                    const data = new Uint8Array(e.target.result);
-                    const workbook = XLSX.read(data, {
+                    const buffer = e.target.result;
+                    if (!buffer) throw new Error('File Excel kosong atau tidak dapat dibaca.');
+
+                    const workbook = XLSX.read(new Uint8Array(buffer), {
                         type: 'array',
                         cellDates: true,
-                        raw: false
+                        raw: false,
+                        cellNF: false,
+                        cellText: true
                     });
 
-                    if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+                    if (!workbook.SheetNames?.length) {
                         throw new Error('Workbook tidak memiliki sheet.');
                     }
 
-                    if (!this.allProjectsData[this.activeProject]) {
-                        this.allProjectsData[this.activeProject] = {};
+                    const projectKey = this.activeProject;
+                    if (!projectKey) throw new Error('Project aktif belum dipilih.');
+
+                    // Pastikan project aktif mempunyai struktur dasar.
+                    if (!this.allProjectsData[projectKey] || typeof this.allProjectsData[projectKey] !== 'object') {
+                        this.allProjectsData[projectKey] = this.createBlankProject(
+                            projectKey,
+                            projectKey,
+                            'Project hasil import Excel'
+                        );
                     }
 
-                    if (!this.allProjectsData[this.activeProject].meta) {
-                        this.allProjectsData[this.activeProject].meta = {
+                    const project = this.allProjectsData[projectKey];
+
+                    if (!project.meta || typeof project.meta !== 'object') {
+                        project.meta = {
+                            projectCode: projectKey,
+                            projectName: 'Piping & Equipment',
+                            description: '',
+                            createdAt: '',
+                            createdBy: this.loginForm.user || 'engineer@tripatra.com',
                             isApproved: false,
                             approvedAt: '',
                             version: 0,
@@ -814,54 +1201,118 @@ function appData() {
                     }
 
                     let importedCount = 0;
+                    let importedSheetCount = 0;
                     let firstImportedSheet = '';
+                    const importedNames = [];
 
                     workbook.SheetNames.forEach((sheetName, sheetIndex) => {
                         const worksheet = workbook.Sheets[sheetName];
                         if (!worksheet || !worksheet['!ref']) return;
 
-                        let jsonRows = XLSX.utils.sheet_to_json(worksheet, {
+                        const cleanSheetName = String(sheetName)
+                            .replace(/\u00A0/g, ' ')
+                            .trim() || `Sheet ${sheetIndex + 1}`;
+
+                        let rows = XLSX.utils.sheet_to_json(worksheet, {
                             defval: '',
                             raw: false,
-                            blankrows: false
+                            blankrows: false,
+                            header: undefined
                         });
 
-                        jsonRows = jsonRows
-                            .filter(row => Object.values(row || {}).some(value => String(value).trim() !== ''))
+                        rows = rows
+                            .filter(row => row && Object.values(row).some(value => String(value ?? '').trim() !== ''))
                             .map((row, idx) => this.normalizeRow(row, idx));
 
-                        const cleanSheetName = String(sheetName).trim() || `Sheet ${sheetIndex + 1}`;
-                        this.allProjectsData[this.activeProject][cleanSheetName] = jsonRows;
-                        importedCount += jsonRows.length;
+                        // Selalu buat sheet dari workbook, termasuk sheet kosong.
+                        project[cleanSheetName] = rows;
+                        importedNames.push(cleanSheetName);
+                        importedSheetCount += 1;
+                        importedCount += rows.length;
 
-                        if (!firstImportedSheet) firstImportedSheet = cleanSheetName;
+                        if (!firstImportedSheet && rows.length > 0) {
+                            firstImportedSheet = cleanSheetName;
+                        }
                     });
 
-                    this.refreshSheetList();
-                    if (firstImportedSheet) this.activeSheet = firstImportedSheet;
+                    if (!importedSheetCount) {
+                        throw new Error('Tidak ada worksheet yang berisi data yang dapat diimport.');
+                    }
 
+                    // Jika workbook mempunyai sheet Valve, prioritaskan Valve agar
+                    // tampilan langsung sesuai halaman yang sedang dikerjakan.
+                    const valveSheet = importedNames.find(name => name.toLowerCase() === 'valve');
+                    this.activeSheet = valveSheet || firstImportedSheet || importedNames[0];
+
+                    // Pastikan sheet aktif berupa array dan dinormalisasi.
+                    if (!Array.isArray(project[this.activeSheet])) {
+                        project[this.activeSheet] = [];
+                    }
+                    project[this.activeSheet] = project[this.activeSheet].map((row, idx) =>
+                        this.normalizeRow(row, idx)
+                    );
+
+                    // INI BAGIAN PENTING:
+                    // Ganti root object agar Alpine benar-benar mendeteksi perubahan
+                    // data Excel yang jumlahnya ribuan baris.
+                    this.allProjectsData = JSON.parse(JSON.stringify(this.allProjectsData));
+
+                    this.normalizeAllProjectsData();
+                    this.refreshSheetList();
+                    this.currentDashboardTab = 'workspace';
                     this.currentPage = 1;
                     this.globalSearch = '';
+                    this.columnFilters = {};
+                    this.closeColumnFilter();
+
+                    // Paksa Alpine membuat ulang DOM tabel.
+                    // Ini penting ketika jumlah baris tetap sama (mis. 12 -> 12)
+                    // tetapi isi seluruh baris berasal dari Excel baru.
+                    this.tableRenderKey++;
+
                     this.saveStorage();
 
-                    alert(
-                        `Import berhasil!\n\n` +
-                        `Proyek: ${this.activeProject}\n` +
-                        `Sheet: ${workbook.SheetNames.length}\n` +
-                        `Total data: ${importedCount} baris\n\n` +
-                        `Sheet aktif: ${this.activeSheet}`
-                    );
+                    const activeRowsCount = this.allProjectsData?.[projectKey]?.[this.activeSheet]?.length || 0;
+
+                    console.log('[IMPORT EXCEL] Berhasil');
+                    console.log('[IMPORT EXCEL] Project:', projectKey);
+                    console.log('[IMPORT EXCEL] Sheet aktif:', this.activeSheet);
+                    console.log('[IMPORT EXCEL] Sheet:', importedNames);
+                    console.log('[IMPORT EXCEL] Total baris semua sheet:', importedCount);
+                    console.log('[IMPORT EXCEL] Baris sheet aktif:', activeRowsCount);
+                    console.log('[IMPORT EXCEL] currentRows:', this.currentRows.length);
+                    console.log('[IMPORT EXCEL] currentColumns:', this.currentColumns);
+
+                    // Tunggu Alpine selesai merender tbody/header baru, lalu ukur scrollbar.
+                    this.$nextTick(() => {
+                        requestAnimationFrame(() => {
+                            this.updateTableScrollbar();
+                            setTimeout(() => this.updateTableScrollbar(), 100);
+                            setTimeout(() => this.updateTableScrollbar(), 500);
+                        });
+                    });
+
+                    setTimeout(() => {
+                        alert(
+                            `Import berhasil!\n\n` +
+                            `Proyek: ${projectKey}\n` +
+                            `Sheet: ${importedSheetCount}\n` +
+                            `Total data: ${importedCount} baris\n\n` +
+                            `Sheet aktif: ${this.activeSheet}\n` +
+                            `Data sheet aktif: ${activeRowsCount} baris`
+                        );
+                    }, 150);
                 } catch (error) {
-                    console.error('Import Excel error:', error);
-                    alert('Gagal import Excel: ' + (error.message || 'format file tidak valid.'));
+                    console.error('[IMPORT EXCEL] Gagal:', error);
+                    alert('Gagal import Excel: ' + (error?.message || 'format file tidak valid.'));
                 } finally {
-                    event.target.value = '';
+                    resetInput();
                 }
             };
 
             reader.onerror = () => {
                 alert('File Excel tidak dapat dibaca oleh browser.');
-                event.target.value = '';
+                resetInput();
             };
 
             reader.readAsArrayBuffer(file);
