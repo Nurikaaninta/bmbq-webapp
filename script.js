@@ -26,6 +26,8 @@ function appData() {
         currentPage: 1,
         itemsPerPage: 15,
         tableRenderKey: 0,
+        _columnsCacheKey: null,
+        _columnsCacheValue: null,
 
         // Filter per kolom seperti Excel.
         // Key = nama kolom, value = daftar nilai yang dipilih.
@@ -43,10 +45,19 @@ function appData() {
 
         showAddModal: false,
         showBoqModal: false,
+        showCostBoqModal: false,
         showApproveModal: false,
+        showFinalReportModal: false,
         taskView: 'active',
         approvalHistory: [],
         approvalNote: '',
+        costRows: [],
+        costNotes: '',
+        // Snapshot Quantity Take-Off yang dikirim Engineer ke Estimator.
+        qtoRows: [],
+        qtoSourceSheet: '',
+        qtoSubmittedAt: '',
+        workflowStatus: 'DRAFT',
         showModuleModal: false,
 
         // State Create Project
@@ -66,8 +77,16 @@ function appData() {
         activeModuleName: '',
         moduleDescription: '',
 
-        activePriceLevel: 'Menengah',
+        // Calculate BOM: Quantity Take-Off (tanpa harga)
         boqCurrency: 'USD',
+        bomMaterialType: 'Pipe',
+        bomMaterialFilter: '',
+        bomSizeFilter: '',
+        bomSpecFilter: '',
+        bomQuantityInput: 0,
+        bomLength: 6,
+        bomOD: 0,
+        bomThickness: 0,
         
         newRowForm: {
             longDesc: '',
@@ -175,39 +194,23 @@ function appData() {
                 }
             });
 
-            const fullValveData = [
-                {"Number": "01", "Long Description (Family)": "Check Valve, Swing, 150 LB, RF, ASME B16.10", "Material": "CS", "Material Code": "ASTM A216 Gr WPB", "Short Description": "Check Valve", "Spec": "CS150", "Size": "10\"", "End Type": "FL", "Facing": "RF", "Pressure Class": "150", "Status": "New", "Weight": "440.92 LB", "Shop/Field": "SHOP", "PnPID": "3457"},
-                {"Number": "02", "Long Description (Family)": "Gate Valve, Solid Wedge, 150 LB, RF, ASME B16.10", "Material": "CS", "Material Code": "ASTM A216 Gr WPB", "Short Description": "Gate Valve", "Spec": "CS150", "Size": "3/4\"", "End Type": "FL", "Facing": "RF", "Pressure Class": "150", "Status": "New", "Weight": "", "Shop/Field": "SHOP", "PnPID": "3690"}
-            ];
+            // ==========================================================
+            // DATABASE V4 - SEMUA TABEL DIMULAI KOSONG
+            // Setiap tabel memiliki storage sendiri berdasarkan PROJECT + SHEET.
+            // ==========================================================
+            const STORAGE_VERSION = 'BMBQ_TABLE_STORAGE_V7_EXACT_EXCEL';
+            const savedVersion = localStorage.getItem('tripatra_storage_version');
 
-            const defaultPRJ3000 = {
-                'meta': {
-                    isApproved: false,
-                    approvedAt: '',
-                    version: 0,
-                    progress: '30%',
-                    projectCode: 'PRJ-3000',
-                    projectName: 'Piping & Equipment',
-                    description: 'Project utama BMBQ WebApp'
-                },
-                'Valve': fullValveData,
-                'SP Items': [],
-                'Support': [],
-                'LineList': [],
-                'Tee': []
-            };
+            if (savedVersion !== STORAGE_VERSION) {
+                Object.keys(localStorage)
+                    .filter(key => key.startsWith('tripatra_table_v4_') || key === 'tripatra_multiproject_db')
+                    .forEach(key => localStorage.removeItem(key));
+                localStorage.setItem('tripatra_storage_version', STORAGE_VERSION);
+            }
 
-            this.sheets.forEach(sh => {
-                if (!defaultPRJ3000[sh]) defaultPRJ3000[sh] = [];
-            });
-
-            const defaultPRJ4000 = JSON.parse(JSON.stringify(defaultPRJ3000));
-            defaultPRJ4000.meta.projectCode = 'PRJ-4000';
-            defaultPRJ4000.meta.projectName = 'Piping & Equipment';
-
-            const defaultPRJ5000 = JSON.parse(JSON.stringify(defaultPRJ3000));
-            defaultPRJ5000.meta.projectCode = 'PRJ-5000';
-            defaultPRJ5000.meta.projectName = 'Piping & Equipment';
+            const defaultPRJ3000 = this.createBlankProject('PRJ-3000', 'Piping & Equipment', 'Project utama BMBQ WebApp');
+            const defaultPRJ4000 = this.createBlankProject('PRJ-4000', 'Piping & Equipment', '');
+            const defaultPRJ5000 = this.createBlankProject('PRJ-5000', 'Piping & Equipment', '');
 
             this.allProjectsData = {
                 'PRJ-3000': defaultPRJ3000,
@@ -215,53 +218,282 @@ function appData() {
                 'PRJ-5000': defaultPRJ5000
             };
 
-            const saved = localStorage.getItem('tripatra_multiproject_db');
-            if (saved) {
-                try {
-                    const parsed = JSON.parse(saved);
-                    if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
-                        this.allProjectsData = parsed;
-                    }
-                } catch (e) {
-                    console.error('Gagal membaca localStorage:', e);
-                }
-            }
+            this.loadProjectMetaStorage();
+            this.loadTableStorage();
 
             this.normalizeAllProjectsData();
             this.refreshSheetList();
             this.loadApprovalHistory();
+            this.loadWorkflowState();
             this.saveStorage();
         },
 
-        normalizeRow(row, idx = 0) {
-            const normalized = {};
-            Object.entries(row || {}).forEach(([key, value]) => {
-                const cleanKey = String(key).replace(/\u00a0/g, ' ').trim();
-                normalized[cleanKey] = value;
-            });
+        // ==========================================================
+        // EXCEL DATA MODEL
+        // Data hasil import disimpan 1:1 dengan header Excel.
+        // Tidak ada alias/rename/delete kolom pada data import.
+        // ==========================================================
+        normalizeHeaderExact(value) {
+            return String(value ?? '')
+                .replace(/\u00A0/g, ' ')
+                .trim();
+        },
 
-            const aliases = {
-                'No': 'Number',
-                'NO': 'Number',
-                'No.': 'Number',
-                'Long Description': 'Long Description (Family)',
-                'Compatible standard': 'Compatible Standard',
-                'MFG': 'Manufacturer',
-                'Mfr': 'Manufacturer'
+        getExactSchema(sheetName) {
+            const schemas = {
+                'SP Items': [
+                    'Long Description (Family)',
+                    'Short Description',
+                    'Spec',
+                    'Available Size',
+                    'Part Subtype',
+                    'Item Count'
+                ],
+                'Support': [
+                    'Long Description (Family)',
+                    'Compatible Standard',
+                    'Manufacturer',
+                    'Material',
+                    'Material Code',
+                    'Long Description (Size)',
+                    'Short Description',
+                    'Spec',
+                    'Size',
+                    'Line Number Tag',
+                    'Design Std',
+                    'Content Iso Symbol Definition',
+                    'Design Pressure Factor',
+                    'End Type',
+                    'Engagement Length',
+                    'Facing',
+                    'Flange Std',
+                    'Gasket Std',
+                    'Port Unit',
+                    'Matching Pipe OD',
+                    'Nominal Diameter',
+                    'X Coordinate (Port 1)',
+                    'Y Coordinate (Port 1)',
+                    'COP Elevation (Port 1)',
+                    'Pressure Class',
+                    'Schedule',
+                    'Status',
+                    'Wall Thickness',
+                    'Weight',
+                    'Weight Unit',
+                    'Required Spec',
+                    'Insulation Thickness',
+                    'Insulation Type',
+                    'Service',
+                    'Tag',
+                    'Tie In Number',
+                    'Shop/Field',
+                    'DWG Number',
+                    'PnPID',
+                    'PnPGuid',
+                    'Item Code',
+                    'Flange Thickness',
+                    'Center of Gravity X',
+                    'Center of Gravity Y',
+                    'Center of Gravity Z',
+                    'Tracing Type',
+                    'Tracing Spec',
+                    'Insulation Spec',
+                    'Spool Number',
+                    'Unit',
+                    'Top of Pipe',
+                    'Bottom of Pipe',
+                    'Part Subtype',
+                    'Support Type',
+                    'Support Detail',
+                    'Fixed',
+                    'Length',
+                    'Min Length',
+                    'Max Length',
+                    'Comment',
+                    'Reference'
+                ],
+                'LineList': [
+                    'No',
+                    'Line Size (Inch)',
+                    'Process Fluid Identifier',
+                    'Pipe.Spec',
+                    'Seq. No',
+                    'Type',
+                    'Thickness [mm]',
+                    'Complete Line No.',
+                    'P&ID No',
+                    'From',
+                    'To',
+                    'Fluid Service',
+                    'Phase',
+                    'Mass Flow\n[kg/h]',
+                    'Volume Flow\n[m1.5/h]',
+                    'Operating',
+                    'Design',
+                    'Operating Temperature',
+                    'Design Temperature',
+                    'Density\n[kg/m3]',
+                    'Viscosity\n[cP]',
+                    'RT',
+                    'PT/MT',
+                    'Medium',
+                    'Pressure [Barg]',
+                    'Painting Code',
+                    'Remarks'
+                ],
+                'Valve': [
+                    'Number',
+                    'Long Description (Family)',
+                    'Compatible Standard',
+                    'Manufacturer',
+                    'Material',
+                    'Material Code',
+                    'Long Description (Size)',
+                    'Short Description',
+                    'Spec',
+                    'Size',
+                    'Line Number Tag',
+                    'Design Std',
+                    'Content Iso Symbol Definition',
+                    'Design Pressure Factor',
+                    'End Type',
+                    'Engagement Length',
+                    'Facing',
+                    'Flange Std',
+                    'Gasket Std',
+                    'Port Unit',
+                    'Nominal Diameter',
+                    'X Coordinate (Port 1)',
+                    'Y Coordinate (Port 1)',
+                    'COP Elevation (Port 1)',
+                    'Pressure Class',
+                    'Schedule',
+                    'Status',
+                    'Wall Thickness',
+                    'Weight',
+                    'Weight Unit',
+                    'Required Spec',
+                    'Insulation Thickness',
+                    'Insulation Type',
+                    'Service',
+                    'Tag',
+                    'Tie In Number',
+                    'Shop/Field',
+                    'DWG Number',
+                    'PnPID',
+                    'PnPGuid',
+                    'Item Code',
+                    'Matching Pipe OD',
+                    'Flange Thickness',
+                    'Center of Gravity X',
+                    'Center of Gravity Y',
+                    'Center of Gravity Z',
+                    'Tracing Type',
+                    'Tracing Spec',
+                    'Insulation Spec',
+                    'Spool Number',
+                    'Unit',
+                    'Top of Pipe',
+                    'Bottom of Pipe',
+                    'Length',
+                    'Valve Alignment',
+                    'Valve Detail',
+                    'Valve Body Type',
+                    'Flow Dependent',
+                    'Offset',
+                    'Operator Type',
+                    'Actuator Type',
+                    'Actuator Height',
+                    'Actuator Width',
+                    'Control Valve',
+                    'Valve Code',
+                    'Normally',
+                    'Failure',
+                    'End Connections',
+                    'Code'
+                ]
             };
+            return schemas[sheetName] || null;
+        },
 
-            Object.entries(aliases).forEach(([from, to]) => {
-                if (Object.prototype.hasOwnProperty.call(normalized, from) &&
-                    !Object.prototype.hasOwnProperty.call(normalized, to)) {
-                    normalized[to] = normalized[from];
-                    delete normalized[from];
-                }
+        getImportTargetSheet() {
+            const name = String(this.activeSheet || '').trim();
+            if (name.toLowerCase() === 'support' || name.toLowerCase() === 'pipe support') return 'Support';
+            if (name.toLowerCase() === 'linelist' || name.toLowerCase() === 'line list') return 'LineList';
+            return name;
+        },
+
+        findWorkbookSheet(workbook, targetSheet) {
+            const target = String(targetSheet || '').trim().toLowerCase();
+            const aliases = {
+                'support': ['support', 'pipe support'],
+                'linelist': ['linelist', 'line list'],
+                'sp items': ['sp items', 'sp_items', 'spitems'],
+                'valve': ['valve']
+            };
+            const accepted = aliases[target] || [target];
+
+            return workbook.SheetNames.find(name =>
+                accepted.includes(String(name || '').replace(/\u00A0/g, ' ').trim().toLowerCase())
+            ) || null;
+        },
+
+        worksheetToExactRows(worksheet) {
+            if (!worksheet) throw new Error('Worksheet Excel tidak ditemukan.');
+
+            const matrix = XLSX.utils.sheet_to_json(worksheet, {
+                header: 1,
+                defval: '',
+                raw: true,
+                blankrows: false
             });
 
-            delete normalized['Long Description (Family) '];
+            // Cari baris header pertama yang mempunyai minimal 2 cell berisi.
+            const headerIndex = matrix.findIndex(row =>
+                Array.isArray(row) &&
+                row.filter(v => String(v ?? '').trim() !== '').length >= 2
+            );
 
-            if (!normalized.Number) normalized.Number = String(idx + 1).padStart(2, '0');
-            return normalized;
+            if (headerIndex < 0) {
+                throw new Error('Header Excel tidak ditemukan.');
+            }
+
+            const rawHeaders = matrix[headerIndex] || [];
+            const headers = [];
+            const used = new Set();
+
+            rawHeaders.forEach((value, colIndex) => {
+                let header = this.normalizeHeaderExact(value);
+                if (!header) header = `Column ${colIndex + 1}`;
+
+                // Header duplikat tidak boleh membuat nilai tertimpa.
+                let unique = header;
+                let n = 2;
+                while (used.has(unique.toLowerCase())) {
+                    unique = `${header} (${n++})`;
+                }
+                used.add(unique.toLowerCase());
+                headers.push(unique);
+            });
+
+            const rows = [];
+
+            for (let r = headerIndex + 1; r < matrix.length; r++) {
+                const sourceRow = Array.isArray(matrix[r]) ? matrix[r] : [];
+                const hasData = headers.some((_, c) => {
+                    const value = sourceRow[c];
+                    return value !== null && value !== undefined && String(value).trim() !== '';
+                });
+                if (!hasData) continue;
+
+                const row = {};
+                headers.forEach((header, c) => {
+                    row[header] = sourceRow[c] ?? '';
+                });
+                rows.push(row);
+            }
+
+            return { headers, rows, headerIndex };
         },
 
         normalizeAllProjectsData() {
@@ -279,21 +511,17 @@ function appData() {
                         isApproved: false,
                         approvedAt: '',
                         version: 0,
-                        progress: '30%'
+                        progress: '0%'
                     };
-                } else {
-                    if (!project.meta.projectCode) project.meta.projectCode = projectKey;
-                    if (!project.meta.projectName) project.meta.projectName = 'Piping & Equipment';
-                    if (!project.meta.description) project.meta.description = '';
-                    if (!project.meta.progress) project.meta.progress = '30%';
                 }
 
+                // Hanya pastikan tipe data benar.
+                // JANGAN mengubah nama header atau isi cell Excel.
                 Object.keys(project).forEach(sheetName => {
                     if (sheetName === 'meta') return;
                     if (!Array.isArray(project[sheetName])) project[sheetName] = [];
                     project[sheetName] = project[sheetName]
-                        .filter(row => row && typeof row === 'object')
-                        .map((row, idx) => this.normalizeRow(row, idx));
+                        .filter(row => row && typeof row === 'object');
                 });
 
                 this.sheets.forEach(sheetName => {
@@ -313,15 +541,107 @@ function appData() {
             this.sheets = [...new Set([...this.sheets, ...importedSheets])];
         },
 
+        getTableStorageKey(projectKey, sheetName) {
+            return `tripatra_table_v4::${encodeURIComponent(String(projectKey || 'default'))}::${encodeURIComponent(String(sheetName || 'default'))}`;
+        },
+
+        getProjectMetaStorageKey() {
+            return 'tripatra_project_meta_v4';
+        },
+
+        loadProjectMetaStorage() {
+            try {
+                const raw = localStorage.getItem(this.getProjectMetaStorageKey());
+                if (!raw) return;
+                const metas = JSON.parse(raw);
+                if (!metas || typeof metas !== 'object') return;
+                Object.entries(metas).forEach(([projectKey, meta]) => {
+                    if (!this.allProjectsData[projectKey]) {
+                        this.allProjectsData[projectKey] = this.createBlankProject(
+                            projectKey, meta?.projectName || 'Piping & Equipment', meta?.description || ''
+                        );
+                    }
+                    this.allProjectsData[projectKey].meta = {
+                        ...this.allProjectsData[projectKey].meta, ...(meta || {})
+                    };
+                });
+            } catch (error) {
+                console.warn('Metadata project tidak dapat dibaca:', error);
+            }
+        },
+
+        loadTableStorage() {
+            const prefix = 'tripatra_table_v4::';
+
+            // Baca semua tabel yang pernah disimpan, termasuk project/sheet baru.
+            Object.keys(localStorage)
+                .filter(key => key.startsWith(prefix))
+                .forEach(key => {
+                    const rest = key.slice(prefix.length);
+                    const parts = rest.split('::');
+                    if (parts.length < 2) return;
+
+                    let projectKey = '';
+                    let sheetName = '';
+                    try {
+                        projectKey = decodeURIComponent(parts[0]);
+                        sheetName = decodeURIComponent(parts.slice(1).join('::'));
+                    } catch (error) {
+                        return;
+                    }
+                    if (!projectKey || !sheetName) return;
+
+                    if (!this.allProjectsData[projectKey]) {
+                        this.allProjectsData[projectKey] = this.createBlankProject(projectKey, 'Piping & Equipment', '');
+                    }
+                    if (!this.sheets.includes(sheetName)) this.sheets.push(sheetName);
+
+                    try {
+                        const raw = localStorage.getItem(key);
+                        const rows = raw ? JSON.parse(raw) : [];
+                        this.allProjectsData[projectKey][sheetName] = Array.isArray(rows) ? rows : [];
+                    } catch (error) {
+                        this.allProjectsData[projectKey][sheetName] = [];
+                    }
+                });
+
+            // Pastikan setiap project mempunyai array terpisah untuk setiap sheet.
+            Object.values(this.allProjectsData || {}).forEach(project => {
+                this.sheets.forEach(sheetName => {
+                    if (!Array.isArray(project[sheetName])) project[sheetName] = [];
+                });
+            });
+        },
+
+        saveTableStorage(projectKey, sheetName) {
+            if (!projectKey || !sheetName) return;
+            const project = this.allProjectsData?.[projectKey];
+            if (!project) return;
+            const rows = Array.isArray(project[sheetName]) ? project[sheetName] : [];
+            localStorage.setItem(this.getTableStorageKey(projectKey, sheetName), JSON.stringify(rows));
+        },
+
         saveStorage() {
-            localStorage.setItem('tripatra_multiproject_db', JSON.stringify(this.allProjectsData));
+            const metas = {};
+            Object.entries(this.allProjectsData || {}).forEach(([projectKey, project]) => {
+                metas[projectKey] = project?.meta || {};
+            });
+            localStorage.setItem(this.getProjectMetaStorageKey(), JSON.stringify(metas));
+
+            Object.entries(this.allProjectsData || {}).forEach(([projectKey, project]) => {
+                Object.keys(project || {}).forEach(sheetName => {
+                    if (sheetName !== 'meta') this.saveTableStorage(projectKey, sheetName);
+                });
+            });
         },
 
         switchProject() {
+            this.loadTableStorage();
             this.currentPage = 1;
             this.globalSearch = '';
             this.columnFilters = {};
             this.closeColumnFilter();
+            this.loadWorkflowState();
         },
 
         // ==========================================================
@@ -595,42 +915,110 @@ function appData() {
         },
 
         get currentRows() {
-            if (!this.allProjectsData[this.activeProject]) this.allProjectsData[this.activeProject] = {};
-            if (!this.allProjectsData[this.activeProject][this.activeSheet]) this.allProjectsData[this.activeProject][this.activeSheet] = [];
+            if (!this.allProjectsData[this.activeProject]) {
+                this.allProjectsData[this.activeProject] = this.createBlankProject(this.activeProject, 'Piping & Equipment', '');
+            }
+            if (!Array.isArray(this.allProjectsData[this.activeProject][this.activeSheet])) {
+                this.allProjectsData[this.activeProject][this.activeSheet] = [];
+            }
             return this.allProjectsData[this.activeProject][this.activeSheet];
         },
 
         get currentColumns() {
-            if (this.currentRows.length === 0) {
-                if (this.activeSheet === 'SP Items') return ['Material', 'Material Code', 'Spec', 'Size', 'Qty', 'Unit', 'Line Number Tag', 'Status'];
-                if (this.activeSheet === 'Support') return ['Support Type', 'Material', 'Spec', 'Size', 'Qty', 'Unit', 'Line Number Tag', 'Status'];
-                if (this.activeSheet === 'LineList') return ['Line Number Tag', 'Material', 'Spec', 'Size', 'Pressure Class', 'Fluid Service', 'Status'];
-                return ['Material', 'Spec', 'Size', 'Pressure Class', 'Line Number Tag', 'Status', 'Shop/Field', 'Waste Factor'];
+            // PERBAIKAN PERFORMA (delay lama saat pindah ke sheet MTO yang
+            // datanya sudah besar, mis. Pipe s.d. Piping and Equipment):
+            // Sebelumnya fungsi ini menghitung ulang UNION seluruh header
+            // dari SEMUA baris SETIAP kali dipanggil. Karena dipanggil untuk
+            // setiap baris yang dirender (bukan cuma sekali per tabel), pada
+            // sheet dengan ratusan/ribuan baris hasil import Excel ini jadi
+            // sangat berat dan bikin tampilan terasa lambat/nge-lag saat
+            // sheet tersebut diklik. Sekarang hasilnya di-cache dan hanya
+            // dihitung ulang saat project/sheet aktif berubah atau saat ada
+            // perubahan data (tableRenderKey berubah), bukan setiap render.
+            const cacheKey = this.activeProject + '::' + this.activeSheet + '::' + this.tableRenderKey;
+            if (this._columnsCacheKey === cacheKey) {
+                return this._columnsCacheValue;
             }
 
+            const result = this.computeCurrentColumns();
+            this._columnsCacheKey = cacheKey;
+            this._columnsCacheValue = result;
+            return result;
+        },
+
+        computeCurrentColumns() {
+            const exactSchema = this.getExactSchema(this.activeSheet);
+            if (exactSchema) {
+                // Number/No tetap tersimpan, tetapi kolom nomor sudah disediakan
+                // oleh kolom UI paling kiri.
+                return exactSchema.filter(col => col !== 'Number' && col !== 'No');
+            }
+
+            const rows = this.currentRows || [];
+            if (!rows.length) {
+                return ['Material', 'Material Code', 'Spec', 'Size', 'Pressure Class', 'Line Number Tag', 'Status'];
+            }
+
+            // Untuk sheet MTO, ambil UNION seluruh header dari semua baris.
+            // Urutan tetap mengikuti kemunculan pertama di Excel, sehingga
+            // data yang hanya terisi pada baris tertentu tidak pernah hilang
+            // hanya karena kolom tersebut kosong pada baris pertama.
+            const ordered = [];
             const seen = new Set();
-            const keys = [];
-
-            this.currentRows.forEach(row => {
+            rows.forEach(row => {
                 Object.keys(row || {}).forEach(col => {
-                    const clean = String(col).trim();
-                    const lower = clean.toLowerCase();
-
-                    if (
-                        clean &&
-                        !seen.has(lower) &&
-                        lower !== 'number' &&
-                        lower !== 'no' &&
-                        lower !== 'long description (family)' &&
-                        lower !== 'long description'
-                    ) {
-                        seen.add(lower);
-                        keys.push(clean);
-                    }
+                    if (col === 'Number' || col === 'No') return;
+                    const key = String(col);
+                    const normalized = key.toLowerCase();
+                    if (seen.has(normalized)) return;
+                    seen.add(normalized);
+                    ordered.push(key);
                 });
             });
+            return ordered;
+        },
 
-            return keys;
+        get freezeColumns() {
+            // FREEZE HARUS BERDASARKAN URUTAN ASLI EXCEL.
+            // Tidak pernah memindahkan, mengurutkan, atau menyisipkan kolom.
+            // Kolom No selalu berada paling kiri dan ikut freeze.
+            const columns = this.currentColumns || [];
+            if (!columns.length) return [];
+
+            // MTO: batas freeze tepat di MANUFACTURER.
+            // Artinya: semua kolom dari paling kiri sampai Manufacturer diam,
+            // sedangkan kolom setelah Manufacturer bergerak bersama scrollbar.
+            // Sheet khusus tetap memakai batas yang sebelumnya sudah disepakati.
+            const targetBySheet = {
+                'SP Items': 'Spec',
+                'Support': 'Material',
+                'LineList': 'Pipe.Spec'
+            };
+
+            const target = targetBySheet[this.activeSheet] || 'Manufacturer';
+            const targetIndex = columns.indexOf(target);
+
+            // Jika Manufacturer tidak ditemukan pada suatu MTO sheet, jangan
+            // memaksakan sticky yang bisa menyebabkan overlap. Freeze hanya No.
+            if (targetIndex < 0) return [];
+
+            return columns.slice(0, targetIndex + 1);
+        },
+
+        isFreezeColumn(column) {
+            return this.freezeColumns.includes(column);
+        },
+
+        getNoFreezeClass() {
+            const noClass = 'freeze-col freeze-col-0';
+            return this.freezeColumns.length === 0 ? `${noClass} freeze-last` : noClass;
+        },
+
+        getFreezeClass(column) {
+            const freezeIndex = this.freezeColumns.indexOf(column);
+            if (freezeIndex === -1) return '';
+            const isLast = freezeIndex === this.freezeColumns.length - 1;
+            return `freeze-col freeze-col-${freezeIndex + 1}${isLast ? ' freeze-last' : ''}`;
         },
 
         get filteredRows() {
@@ -824,12 +1212,14 @@ function appData() {
         },
 
                 openDataSheet(sheetName) {
+        this.saveTableStorage(this.activeProject, this.activeSheet);
         this.activeSheet = sheetName;
         this.currentDashboardTab = 'workspace';
         this.currentPage = 1;
         this.globalSearch = '';
         this.columnFilters = {};
         this.closeColumnFilter();
+        this.tableRenderKey++;
 
         this.$nextTick(() => {
             this.updateTableScrollbar();
@@ -881,9 +1271,6 @@ function appData() {
             const nextNum = String(project[sheet].length + 1).padStart(2, '0');
             const draft = {
                 Number: nextNum,
-                'Long Description (Family)': '',
-                'Compatible Standard': '',
-                Manufacturer: '',
                 Status: 'New',
                 __inlineDraft: true
             };
@@ -956,6 +1343,7 @@ function appData() {
                 row.Number = String(idx + 1).padStart(2, '0');
             });
 
+            this.saveTableStorage(this.activeProject, this.activeSheet);
             this.saveStorage();
 
             this.addingNewData = false;
@@ -971,6 +1359,7 @@ function appData() {
         markRowEdited(row) {
             if (!row) return;
             row.__edited = true;
+            this.saveTableStorage(this.activeProject, this.activeSheet);
             this.saveStorage();
         },
 
@@ -981,131 +1370,105 @@ function appData() {
             };
         },
 
+        getDisplayRowNumber(row, index) {
+            // Untuk sheet equipment (Vessel s.d. Piping and Equipment),
+            // kolom NO adalah nomor urut tabel, bukan Equipment/Tag ID dari Excel.
+            const equipmentSheets = new Set([
+                'Vessel', 'Tank', 'Pump', 'Misc Equipment',
+                'Equipment', 'Piping and Equipment'
+            ]);
+
+            if (equipmentSheets.has(String(this.activeSheet || '').trim())) {
+                return String((this.currentPage - 1) * this.itemsPerPage + index + 1).padStart(2, '0');
+            }
+
+            // Sheet lain tetap mempertahankan nomor asli dari Excel.
+            if (row?.Number !== undefined && row?.Number !== '') return row.Number;
+            if (row?.No !== undefined && row?.No !== '') return row.No;
+            return String((this.currentPage - 1) * this.itemsPerPage + index + 1).padStart(2, '0');
+        },
+
         changeSheet(sheetName) {
-            this.activeSheet = sheetName;
+            const name = String(sheetName || '').replace(/\u00A0/g, ' ').trim();
+            if (!name) return;
+
+            const project = this.allProjectsData?.[this.activeProject];
+
+            // Pastikan kategori yang dipilih selalu mempunyai array data.
+            if (project && !Array.isArray(project[name])) {
+                project[name] = [];
+            }
+
+            // Pastikan kategori tetap terdaftar di navigasi.
+            if (!this.sheets.includes(name)) {
+                this.sheets = [...this.sheets, name];
+            }
+
+            this.activeSheet = name;
+            this.currentDashboardTab = 'workspace';
             this.currentPage = 1;
             this.globalSearch = '';
             this.columnFilters = {};
             this.closeColumnFilter();
             this.tableRenderKey++;
+
             this.$nextTick(() => this.updateTableScrollbar());
         },
 
         updateTableScrollbar() {
             this.$nextTick(() => {
-                const container =
-                    this.$refs?.tableScroll ||
-                    document.querySelector('.workspace-table-card .excel-table-container');
-
-                const table =
-                    container?.querySelector('.excel-table');
-
-                const bottom =
-                    this.$refs?.tableBottomScrollbar ||
-                    document.querySelector('.workspace-table-card .table-bottom-scrollbar');
-
-                const spacer =
-                    this.$refs?.tableBottomScrollbarSpacer ||
-                    document.querySelector('.workspace-table-card .table-bottom-scrollbar-spacer');
-
+                const container = this.$refs?.tableScroll || document.querySelector('.workspace-table-card .excel-table-container');
+                const table = container?.querySelector('.excel-table');
+                const bottom = this.$refs?.tableBottomScrollbar || document.querySelector('.workspace-table-card .table-bottom-scrollbar');
+                const spacer = this.$refs?.tableBottomScrollbarSpacer || document.querySelector('.workspace-table-card .table-bottom-scrollbar-spacer');
                 if (!container || !table || !bottom || !spacer) return;
 
-                /*
-                 * FREEZE 5 KOLOM:
-                 * No -> Long Description -> Manufacturer -> Material -> Material Code.
-                 *
-                 * Offset dihitung dari lebar aktual header, bukan angka hard-code.
-                 * Dengan begitu kolom freeze tidak saling menumpuk pada layar berbeda.
-                 */
-                const freezeHeaders = [
-                    table.querySelector('thead th.sticky-col-no'),
-                    table.querySelector('thead th.sticky-col-desc'),
-                    table.querySelector('thead th.sticky-col-mfg'),
-                    table.querySelector('thead th.sticky-col-material'),
-                    table.querySelector('thead th.sticky-col-material-code')
-                ];
+                // Freeze kolom "No" (index 0) + kolom-kolom dari freezeColumns
+                // (index 1, 2, ...), disusun berjejer sesuai lebar kolom
+                // sebelumnya supaya tidak saling menumpuk.
+                const freezeColumnCount = (this.freezeColumns || []).length;
 
-                let freezeLeft = 0;
-                const freezeOffsets = [];
+                for (let i = 0; i <= freezeColumnCount; i++) {
+                    const headerCell = table.querySelector(`thead th.freeze-col-${i}`);
+                    if (!headerCell) continue;
 
-                freezeHeaders.forEach((cell) => {
-                    const width = cell ? cell.getBoundingClientRect().width : 0;
-                    freezeOffsets.push(freezeLeft);
-                    freezeLeft += width;
-                });
+                    // Offset = total lebar semua kolom freeze sebelumnya.
+                    let offset = 0;
+                    for (let j = 0; j < i; j++) {
+                        const prevHeader = table.querySelector(`thead th.freeze-col-${j}`);
+                        if (prevHeader) offset += Math.ceil(prevHeader.getBoundingClientRect().width);
+                    }
 
-                table.style.setProperty('--freeze-no-left', `${freezeOffsets[0] || 0}px`);
-                table.style.setProperty('--freeze-desc-left', `${freezeOffsets[1] || 0}px`);
-                table.style.setProperty('--freeze-mfg-left', `${freezeOffsets[2] || 0}px`);
-                table.style.setProperty('--freeze-material-left', `${freezeOffsets[3] || 0}px`);
-                table.style.setProperty('--freeze-material-code-left', `${freezeOffsets[4] || 0}px`);
+                    const offsetPx = `${offset}px`;
+                    headerCell.style.left = offsetPx;
+                    headerCell.style.setProperty('--freeze-left', offsetPx);
 
-                /*
-                 * HITUNG LEBAR TABEL DARI SEMUA KOLOM YANG BENAR-BENAR
-                 * TER-RENDER. TIDAK ADA ANGKA 0px / BATAS KOLOM.
-                 */
-                const headerCells = Array.from(
-                    table.querySelectorAll('thead tr:first-child > th')
-                );
-
-                let naturalTableWidth = headerCells.reduce((total, cell) => {
-                    const rect = cell.getBoundingClientRect();
-                    return total + Math.ceil(rect.width);
-                }, 0);
-
-                // Fallback jika header belum tersedia.
-                if (!naturalTableWidth) {
-                    naturalTableWidth = Math.ceil(
-                        Math.max(table.scrollWidth, table.offsetWidth)
-                    );
+                    table.querySelectorAll(`tbody td.freeze-col-${i}`).forEach(cell => {
+                        cell.style.left = offsetPx;
+                        cell.style.setProperty('--freeze-left', offsetPx);
+                    });
                 }
 
-                // Ambil juga lebar baris terbesar yang sudah dirender.
-                const renderedRows = Array.from(
-                    table.querySelectorAll('tbody tr')
-                );
+                const headerCells = Array.from(table.querySelectorAll('thead tr:first-child > th'));
+                let naturalTableWidth = headerCells.reduce((total, cell) => total + Math.ceil(cell.getBoundingClientRect().width), 0);
 
-                renderedRows.forEach(row => {
-                    const cells = Array.from(row.children);
-                    const rowWidth = cells.reduce((total, cell) => {
-                        return total + Math.ceil(cell.getBoundingClientRect().width);
-                    }, 0);
+                Array.from(table.querySelectorAll('tbody tr')).forEach(row => {
+                    const rowWidth = Array.from(row.children).reduce((total, cell) => total + Math.ceil(cell.getBoundingClientRect().width), 0);
                     naturalTableWidth = Math.max(naturalTableWidth, rowWidth);
                 });
 
-                const tableWidth = Math.max(
-                    naturalTableWidth,
-                    Math.ceil(table.scrollWidth),
-                    Math.ceil(table.offsetWidth)
-                );
-
-                /*
-                 * Paksa tabel memakai total lebar seluruh kolomnya.
-                 * max-content memastikan kolom hasil import tidak dipotong.
-                 */
+                const tableWidth = Math.max(naturalTableWidth, Math.ceil(table.scrollWidth), Math.ceil(table.offsetWidth), container.clientWidth);
                 table.style.width = `${tableWidth}px`;
                 table.style.minWidth = `${tableWidth}px`;
                 table.style.maxWidth = 'none';
-
                 spacer.style.width = `${tableWidth}px`;
                 spacer.style.minWidth = `${tableWidth}px`;
                 spacer.style.maxWidth = 'none';
-
                 bottom.style.display = 'block';
 
-                // Jangan pernah membatasi scroll ke angka tetap.
-                const maxScroll = Math.max(
-                    0,
-                    tableWidth - container.clientWidth
-                );
-
-                if (container.scrollLeft > maxScroll) {
-                    container.scrollLeft = maxScroll;
-                }
-
-                if (Math.abs(bottom.scrollLeft - container.scrollLeft) > 0.5) {
-                    bottom.scrollLeft = container.scrollLeft;
-                }
+                const maxScroll = Math.max(0, tableWidth - container.clientWidth);
+                if (container.scrollLeft > maxScroll) container.scrollLeft = maxScroll;
+                if (Math.abs(bottom.scrollLeft - container.scrollLeft) > 0.5) bottom.scrollLeft = container.scrollLeft;
             });
         },
 
@@ -1158,439 +1521,397 @@ function appData() {
             reader.onload = (e) => {
                 try {
                     const buffer = e.target.result;
-                    if (!buffer) throw new Error('File Excel kosong atau tidak dapat dibaca.');
+                    if (!buffer) {
+                        throw new Error('File Excel kosong atau tidak dapat dibaca.');
+                    }
 
                     const workbook = XLSX.read(new Uint8Array(buffer), {
                         type: 'array',
-                        cellDates: true,
-                        raw: false,
+                        cellDates: false,
                         cellNF: false,
-                        cellText: true
+                        cellText: false,
+                        raw: true
                     });
 
                     if (!workbook.SheetNames?.length) {
-                        throw new Error('Workbook tidak memiliki sheet.');
+                        throw new Error('Workbook tidak memiliki worksheet.');
                     }
 
                     const projectKey = this.activeProject;
-                    if (!projectKey) throw new Error('Project aktif belum dipilih.');
-
-                    // Pastikan project aktif mempunyai struktur dasar.
-                    if (!this.allProjectsData[projectKey] || typeof this.allProjectsData[projectKey] !== 'object') {
-                        this.allProjectsData[projectKey] = this.createBlankProject(
-                            projectKey,
-                            projectKey,
-                            'Project hasil import Excel'
-                        );
+                    if (!projectKey) {
+                        throw new Error('Project aktif belum dipilih.');
                     }
 
-                    const project = this.allProjectsData[projectKey];
-
-                    if (!project.meta || typeof project.meta !== 'object') {
-                        project.meta = {
-                            projectCode: projectKey,
-                            projectName: 'Piping & Equipment',
-                            description: '',
-                            createdAt: '',
-                            createdBy: this.loginForm.user || 'engineer@tripatra.com',
-                            isApproved: false,
-                            approvedAt: '',
-                            version: 0,
-                            progress: '30%'
-                        };
+                    if (!this.allProjectsData[projectKey]) {
+                        this.allProjectsData[projectKey] =
+                            this.createBlankProject(projectKey, 'Piping & Equipment', '');
                     }
 
-                    let importedCount = 0;
-                    let importedSheetCount = 0;
-                    let firstImportedSheet = '';
-                    const importedNames = [];
+                    const targetSheet = this.getImportTargetSheet();
 
-                    workbook.SheetNames.forEach((sheetName, sheetIndex) => {
-                        const worksheet = workbook.Sheets[sheetName];
-                        if (!worksheet || !worksheet['!ref']) return;
+                    /*
+                     * ======================================================
+                     * ATURAN IMPORT FINAL
+                     * ======================================================
+                     *
+                     * 1. SP Items       -> hanya sheet SP Items
+                     * 2. Pipe Support   -> hanya sheet Pipe Support/Support
+                     * 3. Line List      -> hanya sheet Line List/LineList
+                     * 4. MTO workbook   -> IMPORT SEMUA SHEET MTO
+                     *
+                     * Ini yang sebelumnya menyebabkan Tee, Pipe, Elbow,
+                     * Flange, dll tetap kosong: import hanya mengambil
+                     * worksheet yang sedang aktif (Valve).
+                     *
+                     * Project 3000-Piping and Equipment.xlsx memang merupakan
+                     * workbook master yang berisi seluruh kategori MTO.
+                     * Saat workbook itu diimport dari area MTO, semua sheet
+                     * MTO dimasukkan ke tabelnya masing-masing.
+                     *
+                     * Sheet Support sengaja tidak ditimpa oleh workbook MTO
+                     * karena tabel Pipe Support mempunyai sumber exact
+                     * tersendiri: Pipe_Support_Project_3000_EXACT.xlsx.
+                     * ======================================================
+                     */
 
-                        const cleanSheetName = String(sheetName)
+                    const dedicatedTargets = new Set([
+                        'SP Items',
+                        'Support',
+                        'LineList'
+                    ]);
+
+                    const mtoSheets = new Set([
+                        'Valve',
+                        'Tee',
+                        'Single Branch Fitting',
+                        'Pipe',
+                        'Nozzle',
+                        'Instrument',
+                        'Flange',
+                        'Elbow',
+                        'Coupling',
+                        'Pipe Run Component',
+                        'Tap Weld',
+                        'Socketweld',
+                        'Gasket',
+                        'Buttweld',
+                        'Bolt Set',
+                        'Fasteners',
+                        'Vessel',
+                        'Tank',
+                        'Pump',
+                        'Misc Equipment',
+                        'Equipment',
+                        'Piping and Equipment'
+                    ]);
+
+                    const normalizeSheetName = (name) =>
+                        String(name || '')
                             .replace(/\u00A0/g, ' ')
-                            .trim() || `Sheet ${sheetIndex + 1}`;
+                            .trim();
 
-                        let rows = XLSX.utils.sheet_to_json(worksheet, {
-                            defval: '',
-                            raw: false,
-                            blankrows: false,
-                            header: undefined
-                        });
+                    const lower = (name) =>
+                        normalizeSheetName(name).toLowerCase();
 
-                        rows = rows
-                            .filter(row => row && Object.values(row).some(value => String(value ?? '').trim() !== ''))
-                            .map((row, idx) => this.normalizeRow(row, idx));
+                    const findExactWorkbookSheet = (aliases) => {
+                        const wanted = aliases.map(lower);
+                        return workbook.SheetNames.find(name =>
+                            wanted.includes(lower(name))
+                        ) || null;
+                    };
 
-                        // Selalu buat sheet dari workbook, termasuk sheet kosong.
-                        project[cleanSheetName] = rows;
-                        importedNames.push(cleanSheetName);
-                        importedSheetCount += 1;
-                        importedCount += rows.length;
+                    // ------------------------------------------------------
+                    // MODE A: dedicated table (SP Items / Pipe Support /
+                    // Line List). Hanya satu sheet yang diproses.
+                    // ------------------------------------------------------
+                    if (dedicatedTargets.has(targetSheet)) {
+                        let aliases;
 
-                        if (!firstImportedSheet && rows.length > 0) {
-                            firstImportedSheet = cleanSheetName;
+                        if (targetSheet === 'SP Items') {
+                            aliases = ['SP Items', 'SP_Items', 'SPItems'];
+                        } else if (targetSheet === 'Support') {
+                            aliases = ['Pipe Support', 'Support'];
+                        } else {
+                            aliases = ['Line List', 'LineList'];
                         }
-                    });
 
-                    if (!importedSheetCount) {
-                        throw new Error('Tidak ada worksheet yang berisi data yang dapat diimport.');
-                    }
+                        let actualSheetName = findExactWorkbookSheet(aliases);
 
-                    // Jika workbook mempunyai sheet Valve, prioritaskan Valve agar
-                    // tampilan langsung sesuai halaman yang sedang dikerjakan.
-                    const valveSheet = importedNames.find(name => name.toLowerCase() === 'valve');
-                    this.activeSheet = valveSheet || firstImportedSheet || importedNames[0];
+                        if (!actualSheetName && workbook.SheetNames.length === 1) {
+                            actualSheetName = workbook.SheetNames[0];
+                        }
 
-                    // Pastikan sheet aktif berupa array dan dinormalisasi.
-                    if (!Array.isArray(project[this.activeSheet])) {
-                        project[this.activeSheet] = [];
-                    }
-                    project[this.activeSheet] = project[this.activeSheet].map((row, idx) =>
-                        this.normalizeRow(row, idx)
-                    );
+                        if (!actualSheetName) {
+                            throw new Error(
+                                `Worksheet untuk "${targetSheet}" tidak ditemukan.\n\n` +
+                                `Worksheet tersedia:\n${workbook.SheetNames.join(', ')}`
+                            );
+                        }
 
-                    // INI BAGIAN PENTING:
-                    // Ganti root object agar Alpine benar-benar mendeteksi perubahan
-                    // data Excel yang jumlahnya ribuan baris.
-                    this.allProjectsData = JSON.parse(JSON.stringify(this.allProjectsData));
+                        const parsed = this.worksheetToExactRows(
+                            workbook.Sheets[actualSheetName]
+                        );
 
-                    this.normalizeAllProjectsData();
-                    this.refreshSheetList();
-                    this.currentDashboardTab = 'workspace';
-                    this.currentPage = 1;
-                    this.globalSearch = '';
-                    this.columnFilters = {};
-                    this.closeColumnFilter();
+                        if (!parsed.rows.length) {
+                            throw new Error(
+                                `Worksheet "${actualSheetName}" tidak mempunyai data.`
+                            );
+                        }
 
-                    // Paksa Alpine membuat ulang DOM tabel.
-                    // Ini penting ketika jumlah baris tetap sama (mis. 12 -> 12)
-                    // tetapi isi seluruh baris berasal dari Excel baru.
-                    this.tableRenderKey++;
+                        const expected = this.getExactSchema(targetSheet);
 
-                    this.saveStorage();
+                        if (expected) {
+                            const normalizedHeaders = parsed.headers.map(h =>
+                                String(h)
+                                    .replace(/\r\n/g, '\n')
+                                    .trim()
+                                    .toLowerCase()
+                            );
 
-                    const activeRowsCount = this.allProjectsData?.[projectKey]?.[this.activeSheet]?.length || 0;
+                            const matched = expected.filter(h =>
+                                normalizedHeaders.includes(
+                                    String(h)
+                                        .replace(/\r\n/g, '\n')
+                                        .trim()
+                                        .toLowerCase()
+                                )
+                            ).length;
 
-                    console.log('[IMPORT EXCEL] Berhasil');
-                    console.log('[IMPORT EXCEL] Project:', projectKey);
-                    console.log('[IMPORT EXCEL] Sheet aktif:', this.activeSheet);
-                    console.log('[IMPORT EXCEL] Sheet:', importedNames);
-                    console.log('[IMPORT EXCEL] Total baris semua sheet:', importedCount);
-                    console.log('[IMPORT EXCEL] Baris sheet aktif:', activeRowsCount);
-                    console.log('[IMPORT EXCEL] currentRows:', this.currentRows.length);
-                    console.log('[IMPORT EXCEL] currentColumns:', this.currentColumns);
+                            const ratio = expected.length
+                                ? matched / expected.length
+                                : 1;
 
-                    // Tunggu Alpine selesai merender tbody/header baru, lalu ukur scrollbar.
-                    this.$nextTick(() => {
-                        requestAnimationFrame(() => {
-                            this.updateTableScrollbar();
-                            setTimeout(() => this.updateTableScrollbar(), 100);
-                            setTimeout(() => this.updateTableScrollbar(), 500);
+                            if (ratio < 0.5) {
+                                throw new Error(
+                                    `Struktur Excel tidak cocok dengan tabel ${targetSheet}.\n\n` +
+                                    `Header terbaca:\n${parsed.headers.join(' | ')}`
+                                );
+                            }
+                        }
+
+                        this.allProjectsData[projectKey][targetSheet] =
+                            parsed.rows.map(row => ({ ...row }));
+
+                        this.activeSheet = targetSheet;
+
+                        this.currentDashboardTab = 'workspace';
+                        this.currentPage = 1;
+                        this.globalSearch = '';
+                        this.columnFilters = {};
+                        this.closeColumnFilter();
+                        this.tableRenderKey++;
+
+                        this.saveStorage();
+
+                        this.$nextTick(() => {
+                            requestAnimationFrame(() => {
+                                this.updateTableScrollbar();
+                            });
                         });
-                    });
 
-                    setTimeout(() => {
+                        console.log(
+                            `[IMPORT EXACT] ${targetSheet}:`,
+                            actualSheetName,
+                            parsed.rows.length,
+                            'rows',
+                            parsed.headers.length,
+                            'columns'
+                        );
+
                         alert(
                             `Import berhasil!\n\n` +
-                            `Proyek: ${projectKey}\n` +
-                            `Sheet: ${importedSheetCount}\n` +
-                            `Total data: ${importedCount} baris\n\n` +
-                            `Sheet aktif: ${this.activeSheet}\n` +
-                            `Data sheet aktif: ${activeRowsCount} baris`
+                            `Project: ${projectKey}\n` +
+                            `Tabel: ${targetSheet}\n` +
+                            `Worksheet: ${actualSheetName}\n` +
+                            `Kolom: ${parsed.headers.length}\n` +
+                            `Data: ${parsed.rows.length} baris`
                         );
-                    }, 150);
+
+                        return;
+                    }
+
+                    // ------------------------------------------------------
+                    // MODE B: MTO
+                    // ------------------------------------------------------
+                    //
+                    // Jika workbook berisi beberapa sheet MTO, import SEMUA
+                    // sheet yang dikenali. Ini membuat navigasi Tee, Pipe,
+                    // Elbow, Flange, dst. tidak lagi kosong.
+                    //
+                    // Jika workbook hanya berisi satu sheet, hanya sheet itu
+                    // yang dimasukkan.
+                    // ------------------------------------------------------
+                    const availableMtoSheets = workbook.SheetNames
+                        .map(normalizeSheetName)
+                        .filter(name => mtoSheets.has(name));
+
+                    if (availableMtoSheets.length > 0) {
+                        const imported = [];
+                        const skipped = [];
+
+                        availableMtoSheets.forEach(actualSheetName => {
+                            try {
+                                const parsed = this.worksheetToExactRows(
+                                    workbook.Sheets[actualSheetName]
+                                );
+
+                                if (!parsed.rows.length) {
+                                    skipped.push(`${actualSheetName} (kosong)`);
+                                    return;
+                                }
+
+                                // Pastikan target sheet sudah ada di navigasi.
+                                if (!this.sheets.includes(actualSheetName)) {
+                                    this.sheets = [...this.sheets, actualSheetName];
+                                }
+
+                                // Simpan setiap sheet ke storage sheet-nya
+                                // sendiri. Tidak menumpuk ke Valve.
+                                this.allProjectsData[projectKey][actualSheetName] =
+                                    parsed.rows.map(row => ({ ...row }));
+
+                                imported.push({
+                                    sheet: actualSheetName,
+                                    rows: parsed.rows.length,
+                                    columns: parsed.headers.length
+                                });
+                            } catch (sheetError) {
+                                skipped.push(
+                                    `${actualSheetName} (${sheetError.message})`
+                                );
+                            }
+                        });
+
+                        if (!imported.length) {
+                            throw new Error(
+                                'Tidak ada sheet MTO yang berhasil diimport.'
+                            );
+                        }
+
+                        // Jangan sentuh Support/Pipe Support di sini.
+                        // Sumbernya adalah file Pipe Support exact terpisah.
+
+                        // Tampilkan Valve jika ada; kalau tidak, tampilkan
+                        // sheet MTO pertama yang berhasil diimport.
+                        const valveImported = imported.some(
+                            item => item.sheet === 'Valve'
+                        );
+
+                        this.activeSheet = valveImported
+                            ? 'Valve'
+                            : imported[0].sheet;
+
+                        this.currentDashboardTab = 'workspace';
+                        this.currentPage = 1;
+                        this.globalSearch = '';
+                        this.columnFilters = {};
+                        this.closeColumnFilter();
+                        this.tableRenderKey++;
+
+                        this.saveStorage();
+
+                        this.$nextTick(() => {
+                            requestAnimationFrame(() => {
+                                this.updateTableScrollbar();
+                                setTimeout(() => {
+                                    this.updateTableScrollbar();
+                                }, 150);
+                            });
+                        });
+
+                        console.table(imported);
+
+                        const summary = imported
+                            .map(item =>
+                                `• ${item.sheet}: ${item.rows} baris × ${item.columns} kolom`
+                            )
+                            .join('\n');
+
+                        alert(
+                            `Import MTO berhasil!\n\n` +
+                            `Project: ${projectKey}\n\n` +
+                            `Sheet yang berhasil dimuat:\n${summary}` +
+                            (skipped.length
+                                ? `\n\nSheet yang dilewati:\n• ${skipped.join('\n• ')}`
+                                : '') +
+                            `\n\nSetiap sheet disimpan ke tabelnya masing-masing.`
+                        );
+
+                        return;
+                    }
+
+                    // ------------------------------------------------------
+                    // MODE C: workbook satu sheet MTO non-standar.
+                    // ------------------------------------------------------
+                    if (workbook.SheetNames.length === 1) {
+                        const actualSheetName = workbook.SheetNames[0];
+                        const parsed = this.worksheetToExactRows(
+                            workbook.Sheets[actualSheetName]
+                        );
+
+                        if (!parsed.rows.length) {
+                            throw new Error(
+                                `Worksheet "${actualSheetName}" tidak mempunyai data.`
+                            );
+                        }
+
+                        const target = targetSheet || actualSheetName;
+
+                        this.allProjectsData[projectKey][target] =
+                            parsed.rows.map(row => ({ ...row }));
+
+                        if (!this.sheets.includes(target)) {
+                            this.sheets = [...this.sheets, target];
+                        }
+
+                        this.activeSheet = target;
+                        this.currentDashboardTab = 'workspace';
+                        this.currentPage = 1;
+                        this.globalSearch = '';
+                        this.columnFilters = {};
+                        this.closeColumnFilter();
+                        this.tableRenderKey++;
+
+                        this.saveStorage();
+
+                        this.$nextTick(() => {
+                            requestAnimationFrame(() => {
+                                this.updateTableScrollbar();
+                            });
+                        });
+
+                        alert(
+                            `Import berhasil!\n\n` +
+                            `Tabel: ${target}\n` +
+                            `Worksheet: ${actualSheetName}\n` +
+                            `Data: ${parsed.rows.length} baris`
+                        );
+
+                        return;
+                    }
+
+                    throw new Error(
+                        `Workbook tidak dikenali sebagai workbook MTO atau tabel khusus.\n\n` +
+                        `Worksheet tersedia: ${workbook.SheetNames.join(', ')}`
+                    );
+
                 } catch (error) {
-                    console.error('[IMPORT EXCEL] Gagal:', error);
-                    alert('Gagal import Excel: ' + (error?.message || 'format file tidak valid.'));
+                    console.error('[IMPORT FIX] Gagal:', error);
+                    alert(
+                        'Import Excel gagal.\n\n' +
+                        (error?.message || 'Format Excel tidak sesuai.')
+                    );
                 } finally {
                     resetInput();
                 }
             };
 
             reader.onerror = () => {
-                alert('File Excel tidak dapat dibaca oleh browser.');
                 resetInput();
+                alert('File Excel tidak dapat dibaca oleh browser.');
             };
 
             reader.readAsArrayBuffer(file);
-        },
-
-        saveNewRowData() {
-            if (this.loginForm.role !== 'Piping Engineer') {
-                alert('Akses ditolak! Hanya Piping Engineer yang dapat menambah data.');
-                return;
-            }
-
-            const sheet = this.activeSheet;
-            const rows = this.currentRows;
-            const nextNum = String(rows.length + 1).padStart(2, '0');
-            let row = { Number: nextNum, Status: 'New' };
-
-            if (sheet === 'LineList') {
-                row = {
-                    Number: nextNum,
-                    'Line Number Tag': this.newRowForm.tag,
-                    'Long Description (Family)': this.newRowForm.longDesc,
-                    Material: this.newRowForm.material,
-                    Spec: this.newRowForm.spec,
-                    Size: this.newRowForm.size,
-                    'Pressure Class': this.newRowForm.pressure,
-                    'Fluid Service': this.newRowForm.service,
-                    'Status': 'New'
-                };
-            } else if (sheet === 'Support') {
-                row = {
-                    Number: nextNum,
-                    'Long Description (Family)': this.newRowForm.longDesc,
-                    'Support Type': this.newRowForm.supportType,
-                    Material: this.newRowForm.material,
-                    Spec: this.newRowForm.spec,
-                    Size: this.newRowForm.size,
-                    'Line Number Tag': this.newRowForm.tag,
-                    Qty: this.newRowForm.qty,
-                    Unit: this.newRowForm.unit || 'EA',
-                    Status: 'New'
-                };
-            } else if (sheet === 'SP Items') {
-                row = {
-                    Number: nextNum,
-                    'Long Description (Family)': this.newRowForm.longDesc,
-                    Material: this.newRowForm.material,
-                    'Material Code': '',
-                    Spec: this.newRowForm.spec,
-                    Size: this.newRowForm.size,
-                    Qty: this.newRowForm.qty,
-                    Unit: this.newRowForm.unit || 'EA',
-                    'Line Number Tag': this.newRowForm.tag,
-                    Status: 'New'
-                };
-            } else {
-                row = {
-                    Number: nextNum,
-                    'Long Description (Family)': this.newRowForm.longDesc,
-                    Material: this.newRowForm.material,
-                    Spec: this.newRowForm.spec,
-                    Size: this.newRowForm.size,
-                    'Pressure Class': this.newRowForm.pressure,
-                    'Waste Factor': this.newRowForm.wasteFactor ? this.newRowForm.wasteFactor + '%' : '',
-                    'Line Number Tag': this.newRowForm.tag,
-                    Status: 'New',
-                    'Shop/Field': 'SHOP',
-                    'Compatible Standard': '',
-                    Manufacturer: ''
-                };
-            }
-
-            rows.push(row);
-            rows.forEach((item, idx) => item.Number = String(idx + 1).padStart(2, '0'));
-            this.saveStorage();
-            this.showAddModal = false;
-            this.resetNewRowForm();
-            alert(`Data ${sheet} berhasil ditambahkan.`);
-        },
-
-        deleteRow(index) {
-            if (this.loginForm.role !== 'Piping Engineer') {
-                alert('Akses ditolak.');
-                return;
-            }
-            const actualIndex = (this.currentPage - 1) * this.itemsPerPage + index;
-            if (confirm('Hapus baris data ini?')) {
-                this.currentRows.splice(actualIndex, 1);
-                
-                // Re-index nomor urut data setelah aksi hapus[cite: 7]
-                this.currentRows.forEach((row, idx) => {
-                    row['Number'] = String(idx + 1).padStart(2, '0');
-                });
-
-                this.saveStorage();
-                alert('Data dihapus.');
-            }
-        },
-
-        loadApprovalHistory() {
-            try {
-                const saved = localStorage.getItem('tripatra_approval_history');
-                this.approvalHistory = saved ? JSON.parse(saved) : [];
-                if (!Array.isArray(this.approvalHistory)) this.approvalHistory = [];
-            } catch (e) {
-                console.error('Gagal membaca riwayat approval:', e);
-                this.approvalHistory = [];
-            }
-        },
-
-        saveApprovalHistory() {
-            localStorage.setItem('tripatra_approval_history', JSON.stringify(this.approvalHistory));
-        },
-
-        get projectApprovalHistory() {
-            return (this.approvalHistory || []).filter(item => item.projectId === this.activeProject);
-        },
-
-        get activeTaskCount() {
-            // Tugas aktif tetap ditampilkan setelah ada keputusan.
-            // Riwayat keputusan dicatat terpisah di tab "Riwayat Selesai".
-            return 2;
-        },
-
-        get latestApproval() {
-            const list = this.projectApprovalHistory;
-            return list.length ? list[list.length - 1] : null;
-        },
-
-        openApprovalHistory() {
-            this.taskView = 'history';
-        },
-
-        openActiveTasks() {
-            this.taskView = 'active';
-        },
-
-        getApprovalStatusText(status) {
-            const map = {
-                Approved: 'Approved',
-                Rejected: 'Rejected',
-                Revision: 'Minta Revisi'
-            };
-            return map[status] || status || 'Menunggu';
-        },
-
-        getApprovalStatusClass(status) {
-            if (status === 'Approved') return 'bg-emerald-100 text-emerald-700';
-            if (status === 'Rejected') return 'bg-rose-100 text-rose-700';
-            if (status === 'Revision') return 'bg-amber-100 text-amber-700';
-            return 'bg-slate-100 text-slate-700';
-        },
-
-        openApprovalDetail(item) {
-            const note = item.notes ? `\n\nCatatan: ${item.notes}` : '';
-            alert(`Detail Approval\n\nProject: ${item.projectId}\nSheet: ${item.sheet}\nStatus: ${this.getApprovalStatusText(item.status)}\nRevision: Rev ${item.revision}\nReviewer: ${item.reviewer}\nWaktu: ${item.timestamp}${note}`);
-        },
-
-        generateBOQ() { this.showBoqModal = true; },
-        approveData() {
-            this.approvalNote = '';
-            const textarea = document.getElementById('reviewer-notes-textarea');
-            if (textarea) textarea.value = '';
-            this.showApproveModal = true;
-        },
-
-        confirmApprove() {
-            const project = this.allProjectsData[this.activeProject];
-            if (!project) return;
-            if (!project.meta) project.meta = {};
-
-            const currentRev = Number(project.meta.version || 0);
-            const nextRev = currentRev + 1;
-            const textarea = document.getElementById('reviewer-notes-textarea');
-            const notes = textarea ? textarea.value.trim() : '';
-            const now = new Date().toLocaleString('id-ID');
-
-            project.meta.version = nextRev;
-            project.meta.isApproved = true;
-            project.meta.approvedAt = now;
-            project.meta.approvalStatus = 'Approved';
-
-            this.approvalHistory.push({
-                id: Date.now(),
-                projectId: this.activeProject,
-                projectName: project.meta.projectName || 'Piping & Equipment',
-                sheet: this.activeSheet || 'Valve',
-                title: 'Review MTO & Spesifikasi Valve Proyek Saat Ini',
-                status: 'Approved',
-                revision: nextRev,
-                reviewer: this.loginForm.role || 'Lead Estimator',
-                notes,
-                timestamp: now
-            });
-
-            this.saveApprovalHistory();
-            this.saveStorage();
-            this.showApproveModal = false;
-            this.taskView = 'active';
-            alert(`Proyek disetujui. Revision berubah menjadi Rev ${nextRev}.`);
-        },
-
-        rejectData() {
-            const project = this.allProjectsData[this.activeProject];
-            if (!project) return;
-            if (!project.meta) project.meta = { version: 0, isApproved: false };
-
-            const textarea = document.getElementById('reviewer-notes-textarea');
-            const notes = textarea ? textarea.value.trim() : '';
-            const now = new Date().toLocaleString('id-ID');
-            const currentRev = Number(project.meta.version || 0);
-
-            project.meta.isApproved = false;
-            project.meta.approvalStatus = 'Rejected';
-            project.meta.approvedAt = '';
-
-            this.approvalHistory.push({
-                id: Date.now(),
-                projectId: this.activeProject,
-                projectName: project.meta.projectName || 'Piping & Equipment',
-                sheet: this.activeSheet || 'Valve',
-                title: 'Review MTO & Spesifikasi Valve Proyek Saat Ini',
-                status: 'Rejected',
-                revision: currentRev,
-                reviewer: this.loginForm.role || 'Lead Estimator',
-                notes,
-                timestamp: now
-            });
-
-            this.saveApprovalHistory();
-            this.saveStorage();
-            this.showApproveModal = false;
-            this.taskView = 'active';
-            alert(`Proyek ditolak pada Rev ${currentRev}.`);
-        },
-
-        handleMintaRevisi() {
-            const project = this.allProjectsData[this.activeProject];
-            if (!project) return;
-            if (!project.meta) project.meta = { version: 0, isApproved: false };
-
-            const textarea = document.getElementById('reviewer-notes-textarea');
-            const notes = textarea ? textarea.value.trim() : '';
-            if (!notes) {
-                alert('Silakan isi catatan atau alasan revisi terlebih dahulu.');
-                return;
-            }
-
-            const now = new Date().toLocaleString('id-ID');
-            const currentRev = Number(project.meta.version || 0);
-            project.meta.isApproved = false;
-            project.meta.approvalStatus = 'Revision';
-            project.meta.revisionNotes = notes;
-
-            this.approvalHistory.push({
-                id: Date.now(),
-                projectId: this.activeProject,
-                projectName: project.meta.projectName || 'Piping & Equipment',
-                sheet: this.activeSheet || 'Valve',
-                title: 'Review MTO & Spesifikasi Valve Proyek Saat Ini',
-                status: 'Revision',
-                revision: currentRev,
-                reviewer: this.loginForm.role || 'Lead Estimator',
-                notes,
-                timestamp: now
-            });
-
-            this.saveApprovalHistory();
-            this.saveStorage();
-            this.showApproveModal = false;
-            this.taskView = 'active';
-            alert(`Permintaan revisi berhasil disimpan pada Rev ${currentRev}.`);
-        },
-
-        formatCurrency(amount) {
-            if (this.boqCurrency === 'IDR') {
-                return 'Rp ' + (amount * 16000).toLocaleString('id-ID');
-            }
-            return '$ ' + amount.toLocaleString('en-US');
         },
 
         exportExcel() {
@@ -1602,121 +1923,522 @@ function appData() {
             XLSX.writeFile(workbook, `${this.activeProject}_${this.activeSheet.replace(/\s+/g, '_')}.xlsx`);
         },
 
-        exportBOQ() {
-            const totalItems = this.currentRows.length;
-            
-            const directCostIDR = this.activePriceLevel === 'Bawah' ? 2400000000 : (this.activePriceLevel === 'Menengah' ? 2960000000 : 3500000000);
-            const weldingCostIDR = 400000000;
-            const totalAnggaranIDR = directCostIDR + weldingCostIDR;
-            const formatRp = (num) => "Rp " + (num || 0).toLocaleString('id-ID');
-
-            let tableRowsHTML = "";
-            let totalBiayaMTO = 0;
-
-            this.currentRows.forEach((item, index) => {
-                const harga = item.hargaSatuan || 120000;
-                const qty = item.qty || 10;
-                const total = harga * qty;
-                totalBiayaMTO += total;
-
-                tableRowsHTML += `
-                    <tr>
-                        <td style="text-align: center; border: 1px solid #000; padding: 6px;">${index + 1}</td>
-                        <td style="border: 1px solid #000; padding: 6px;">${item.kode || item.tag || 'PIP-0' + (index+1)}</td>
-                        <td style="border: 1px solid #000; padding: 6px;">${item.deskripsi || item.nama || 'Carbon Steel Pipe ASTM A106'}</td>
-                        <td style="text-align: center; border: 1px solid #000; padding: 6px;">${item.ukuran || '4 Inch'}</td>
-                        <td style="text-align: center; border: 1px solid #000; padding: 6px;">${qty}</td>
-                        <td style="text-align: center; border: 1px solid #000; padding: 6px;">${item.satuan || 'M'}</td>
-                        <td style="text-align: right; border: 1px solid #000; padding: 6px;">${formatRp(harga)}</td>
-                        <td style="text-align: right; border: 1px solid #000; padding: 6px;">${formatRp(total)}</td>
-                    </tr>
-                `;
-            });
-
-            const docHTML = `
-                <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
-                <head>
-                    <meta charset="utf-8">
-                    <title>Laporan BOQ</title>
-                    <style>
-                        body { font-family: 'Calibri', Arial, sans-serif; font-size: 11pt; color: #000; line-height: 1.15; }
-                        .header-title { text-align: center; font-weight: bold; font-size: 14pt; margin-bottom: 2px; }
-                        .header-sub { text-align: center; font-size: 11pt; margin-bottom: 20px; }
-                        .section-title { font-weight: bold; font-size: 11pt; background-color: #f2f2f2; padding: 5px; margin-top: 15px; border-bottom: 1px solid #000; }
-                        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 10pt; }
-                        th { background-color: #002060; color: #ffffff; border: 1px solid #000; padding: 8px; text-align: center; }
-                    </style>
-                </head>
-                <body>
-                    <div class="header-title">PT. TRIPATRA ENGINEERING</div>
-                    <div class="header-sub">Proyek BMBQ - Gedung Utama Lt. 4, Jakarta</div>
-                    <hr style="border: 1px solid #000;">
-                    <div style="text-align: center; font-weight: bold; font-size: 12pt; margin: 15px 0;">LAPORAN REKAPITULASI BIAYA & ESTIMASI BOQ</div>
-                    
-                    <table style="border: none; margin-bottom: 20px;">
-                        <tr><td style="width: 180px; border:none;"><b>ID Proyek</b></td><td style="width: 10px; border:none;">:</td><td style="border: none;">${this.activeProject}</td></tr>
-                        <tr><td style="border: none;"><b>Tanggal Cetak</b></td><td style="border: none;">:</td><td style="border: none;">04 Agustus 2026</td></tr>
-                        <tr><td style="border: none;"><b>Level Harga Satuan</b></td><td style="border: none;">:</td><td style="border: none;">${this.activePriceLevel}</td></tr>
-                        <tr><td style="border: none;"><b>Mata Uang</b></td><td style="border: none;">:</td><td style="border: none;">IDR (Rp)</td></tr>
-                    </table>
-
-                    <div class="section-title">1. RINGKASAN EKSEKUTIF (EXECUTIVE SUMMARY)</div>
-                    <p>Laporan ini merangkum estimasi anggaran biaya langsung (Direct Cost) dan biaya fabrikasi berdasarkan data parameter yang telah di-input ke dalam sistem.</p>
-                    
-                    <table style="border: none; width: 80%;">
-                        <tr><td style="border:none; padding: 3px;">* Total Item MTO</td><td style="border:none; padding: 3px;">: ${totalItems} Item</td></tr>
-                        <tr><td style="border:none; padding: 3px;">* Estimasi Direct Cost</td><td style="border:none; padding: 3px;">: ${formatRp(directCostIDR)}</td></tr>
-                        <tr><td style="border:none; padding: 3px;">* Estimasi Biaya Las (Inch-Dia)</td><td style="border:none; padding: 3px;">: ${formatRp(weldingCostIDR)}</td></tr>
-                        <tr><td colspan="2" style="border-top: 1px solid #000; padding: 3px;"></td></tr>
-                        <tr><td style="border:none; padding: 3px;"><b>* TOTAL ESTIMASI ANGGARAN</b></td><td style="border:none; padding: 3px;"><b>: ${formatRp(totalAnggaranIDR)}</b></td></tr>
-                    </table>
-
-                    <div class="section-title" style="margin-top: 25px;">2. RINCIAN DATA MATERIAL (MTO BREAKDOWN)</div>
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>No</th>
-                                <th>Kode / Tag</th>
-                                <th>Deskripsi Material</th>
-                                <th>Ukuran</th>
-                                <th>Qty</th>
-                                <th>Satuan</th>
-                                <th>Harga Satuan</th>
-                                <th>Total Harga</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${tableRowsHTML}
-                            <tr>
-                                <td colspan="7" style="text-align: right; font-weight: bold; border: 1px solid #000; padding: 6px;">TOTAL BIAYA MTO</td>
-                                <td style="text-align: right; font-weight: bold; border: 1px solid #000; padding: 6px;">${formatRp(totalBiayaMTO)}</td>
-                            </tr>
-                        </tbody>
-                    </table>
-
-                    <br><br>
-                    <div style="float: right; text-align: right; width: 250px;">
-                        <p>Disetujui Oleh,</p>
-                        <br><br><br>
-                        <p><b>[ Tanda Tangan ]</b><br>Cost Control / Estimator</p>
-                    </div>
-                </body>
-                </html>
-            `;
-
-            const blob = new Blob(['\ufeff' + docHTML], {
-                type: 'application/msword'
-            });
-            
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `Laporan_BOQ_${this.activeProject}.doc`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
+        // ==========================================================
+        // WORKFLOW MTO -> ESTIMATOR -> LEAD / SPV
+        // ==========================================================
+        get workflowStorageKey() {
+            return `tripatra_workflow_v1::${encodeURIComponent(String(this.activeProject || 'PRJ-3000'))}`;
         },
+
+        loadApprovalHistory() {
+            // Riwayat approval sekarang disimpan per project pada workflow storage.
+            this.approvalHistory = [];
+        },
+
+        loadWorkflowState() {
+            try {
+                const raw = localStorage.getItem(this.workflowStorageKey);
+                if (!raw) {
+                    this.workflowStatus = 'DRAFT';
+                    this.approvalHistory = [];
+                    return;
+                }
+                const data = JSON.parse(raw) || {};
+                this.workflowStatus = data.status || 'DRAFT';
+                this.approvalHistory = Array.isArray(data.history) ? data.history : [];
+                this.costRows = Array.isArray(data.costRows) ? data.costRows : [];
+                this.qtoRows = Array.isArray(data.qtoRows) ? data.qtoRows : [];
+                this.qtoSourceSheet = data.qtoSourceSheet || '';
+                this.qtoSubmittedAt = data.qtoSubmittedAt || '';
+            } catch (e) {
+                console.warn('Workflow tidak dapat dibaca:', e);
+                this.workflowStatus = 'DRAFT';
+                this.approvalHistory = [];
+                this.costRows = [];
+                this.qtoRows = [];
+                this.qtoSourceSheet = '';
+                this.qtoSubmittedAt = '';
+            }
+        },
+
+        saveWorkflowState() {
+            const payload = {
+                status: this.workflowStatus,
+                history: this.approvalHistory || [],
+                costRows: this.costRows || [],
+                qtoRows: this.qtoRows || [],
+                qtoSourceSheet: this.qtoSourceSheet || '',
+                qtoSubmittedAt: this.qtoSubmittedAt || '',
+                updatedAt: new Date().toISOString()
+            };
+            localStorage.setItem(this.workflowStorageKey, JSON.stringify(payload));
+        },
+
+        get projectApprovalHistory() {
+            return Array.isArray(this.approvalHistory) ? this.approvalHistory : [];
+        },
+
+        get latestApproval() {
+            const h = this.projectApprovalHistory;
+            return h.length ? h[h.length - 1] : null;
+        },
+
+        get activeTaskCount() {
+            const r = this.loginForm.role;
+            if (r === 'Piping Engineer') return ['DRAFT', 'REVISION_REQUESTED_TO_ENGINEER'].includes(this.workflowStatus) ? 1 : 0;
+            if (r === 'Estimator Proposal') return ['SUBMITTED_TO_ESTIMATOR', 'REVISION_REQUESTED_TO_ESTIMATOR'].includes(this.workflowStatus) ? 1 : 0;
+            if (r === 'Lead Estimator') return this.workflowStatus === 'SUBMITTED_TO_LEAD' ? 1 : 0;
+            return 0;
+        },
+
+        getApprovalStatusText(status) {
+            const map = {
+                DRAFT: 'Draft',
+                SUBMITTED_TO_ESTIMATOR: 'Menunggu Estimator',
+                SUBMITTED_TO_LEAD: 'Menunggu Review Lead',
+                APPROVED: 'Approved',
+                REJECTED: 'Rejected',
+                REVISION_REQUESTED: 'Minta Revisi',
+                REVISION_REQUESTED_TO_ESTIMATOR: 'Revisi BOQ untuk Estimator',
+                REVISION_REQUESTED_TO_ENGINEER: 'Revisi MTO untuk Engineer'
+            };
+            return map[status] || status || 'Menunggu';
+        },
+
+        getApprovalStatusClass(status) {
+            if (status === 'APPROVED') return 'bg-emerald-100 text-emerald-700';
+            if (status === 'REJECTED') return 'bg-rose-100 text-rose-700';
+            if (status === 'REVISION_REQUESTED') return 'bg-amber-100 text-amber-700';
+            if (status === 'SUBMITTED_TO_LEAD') return 'bg-sky-100 text-sky-700';
+            return 'bg-slate-100 text-slate-700';
+        },
+
+        createWorkflowHistory(status, title, notes = '') {
+            const item = {
+                id: Date.now(),
+                title,
+                projectId: this.activeProject,
+                sheet: this.activeSheet,
+                revision: this.allProjectsData?.[this.activeProject]?.meta?.version || 0,
+                reviewer: this.loginForm.role,
+                status,
+                notes,
+                timestamp: new Date().toLocaleString('id-ID')
+            };
+            this.approvalHistory.push(item);
+            this.saveWorkflowState();
+            return item;
+        },
+
+        generateBOQ() {
+            if (this.loginForm.role !== 'Estimator Proposal') {
+                alert('Fitur Kalkulasi Biaya BOQ hanya dapat dijalankan oleh Estimator.');
+                return;
+            }
+            let groups = Array.isArray(this.qtoRows) ? this.qtoRows : [];
+            // Kompatibilitas dengan workflow lama: jika snapshot QTO belum ada tetapi status sudah dikirim,
+            // ambil data sheet aktif sekali lalu simpan sebagai snapshot.
+            if (!groups.length && this.workflowStatus === 'SUBMITTED_TO_ESTIMATOR') {
+                groups = this.getBomGroups();
+                if (groups.length) {
+                    this.qtoRows = groups.map(g => ({ ...g }));
+                    this.qtoSourceSheet = this.activeSheet;
+                    this.qtoSubmittedAt = new Date().toISOString();
+                    this.saveWorkflowState();
+                }
+            }
+            if (!groups.length) {
+                alert('Belum ada Quantity Take-Off dari Engineer. Engineer harus mengirim MTO terlebih dahulu.');
+                return;
+            }
+            this.costRows = groups.map((g, i) => ({
+                no: i + 1,
+                description: g.description,
+                material: g.material,
+                size: g.size,
+                spec: g.spec,
+                quantity: g.quantity,
+                unit: 'EA',
+                unitPrice: Number((this.costRows[i]?.unitPrice) || 0),
+                total: Number((this.costRows[i]?.unitPrice) || 0) * g.quantity
+            }));
+            this.showCostBoqModal = true;
+        },
+
+        updateCostRow(index, value) {
+            const row = this.costRows[index];
+            if (!row) return;
+            row.unitPrice = Math.max(0, Number(value) || 0);
+            row.total = row.unitPrice * (Number(row.quantity) || 0);
+            this.saveWorkflowState();
+        },
+
+        get costGrandTotal() {
+            return (this.costRows || []).reduce((sum, r) => sum + (Number(r.total) || 0), 0);
+        },
+
+        submitCostToLead() {
+            if (this.loginForm.role !== 'Estimator Proposal') return;
+            if (!this.costRows.length) return alert('Belum ada data BOQ yang dihitung.');
+            this.workflowStatus = 'SUBMITTED_TO_LEAD';
+            this.createWorkflowHistory('SUBMITTED_TO_LEAD', 'BOQ & Quantity Take-Off dikirim untuk Review Lead', this.costNotes || 'Estimator mengirim hasil kalkulasi BOQ untuk direview Lead.');
+            this.showCostBoqModal = false;
+            this.taskView = 'active';
+            alert('Kalkulasi BOQ berhasil dikirim ke Lead Estimator untuk review.');
+        },
+
+        get leadReviewRows() {
+            // Gunakan hasil costing Estimator sebagai sumber utama.
+            // Quantity/spec tetap berasal dari snapshot QTO Engineer.
+            return Array.isArray(this.costRows) ? this.costRows : [];
+        },
+
+        get leadReviewTotalQuantity() {
+            return this.leadReviewRows.reduce((sum, row) => sum + (Number(row.quantity) || 0), 0);
+        },
+
+        get leadReviewTotalCost() {
+            return this.leadReviewRows.reduce((sum, row) => sum + (Number(row.total) || 0), 0);
+        },
+
+        get leadReviewCurrencyLabel() {
+            return this.boqCurrency === 'IDR' ? 'Rp' : (this.boqCurrency || 'USD');
+        },
+
+        formatMoney(value) {
+            const n = Number(value) || 0;
+            return n.toLocaleString('id-ID');
+        },
+
+        approveData() {
+            if (this.loginForm.role !== 'Lead Estimator') {
+                alert('Approval & Review hanya dapat dijalankan oleh Lead Estimator.');
+                return;
+            }
+            if (this.workflowStatus !== 'SUBMITTED_TO_LEAD') {
+                alert('Belum ada BOQ/laporan dari Estimator yang menunggu review.');
+                this.currentDashboardTab = 'tasks';
+                return;
+            }
+            if (!Array.isArray(this.costRows) || this.costRows.length === 0) {
+                alert('Data BOQ dari Estimator belum tersedia.');
+                return;
+            }
+            this.loadWorkflowState();
+            this.approvalNote = '';
+            this.showApproveModal = true;
+        },
+
+        confirmApprove() {
+            if (this.loginForm.role !== 'Lead Estimator') return;
+            this.workflowStatus = 'APPROVED';
+            const note = this.approvalNote || document.getElementById('reviewer-notes-textarea')?.value || 'Disetujui oleh Lead Estimator.';
+            this.createWorkflowHistory(
+                'APPROVED',
+                'BOQ & Laporan Disetujui',
+                `${note} Total BOQ: ${this.formatMoney(this.leadReviewTotalCost)}. Quantity: ${this.leadReviewRows.map(r => `${r.quantity ?? 0} ${r.unit || 'EA'}`).join(', ')}.`
+            );
+            this.saveWorkflowState();
+            this.showApproveModal = false;
+            this.taskView = 'history';
+            alert('Laporan berhasil di-approve. Status project sekarang APPROVED.');
+        },
+
+        rejectData() {
+            if (this.loginForm.role !== 'Lead Estimator') return;
+            this.workflowStatus = 'REJECTED';
+            const note = this.approvalNote || document.getElementById('reviewer-notes-textarea')?.value || 'Laporan ditolak oleh Lead Estimator.';
+            this.createWorkflowHistory('REJECTED', 'BOQ & Laporan Ditolak', note);
+            this.saveWorkflowState();
+            this.showApproveModal = false;
+            this.taskView = 'history';
+            alert('Laporan ditolak dan tercatat pada riwayat.');
+        },
+
+        handleMintaRevisi() {
+            if (this.loginForm.role !== 'Lead Estimator') return;
+            this.workflowStatus = 'REVISION_REQUESTED_TO_ESTIMATOR';
+            const note = this.approvalNote || document.getElementById('reviewer-notes-textarea')?.value || 'Mohon revisi data sebelum diajukan kembali.';
+            this.createWorkflowHistory('REVISION_REQUESTED_TO_ESTIMATOR', 'Lead Meminta Revisi BOQ', note);
+            this.saveWorkflowState();
+            this.showApproveModal = false;
+            this.taskView = 'history';
+            alert('Permintaan revisi BOQ berhasil dikirim kembali ke Estimator.');
+        },
+
+        get finalReportAvailable() {
+            return this.workflowStatus === 'APPROVED' && Array.isArray(this.costRows) && this.costRows.length > 0;
+        },
+
+        openFinalReport() {
+            if (!this.finalReportAvailable) {
+                alert('Laporan final belum tersedia. BOQ harus disetujui Lead terlebih dahulu.');
+                return;
+            }
+            this.loadWorkflowState();
+            this.showFinalReportModal = true;
+        },
+
+        get finalReportTotal() {
+            return (this.costRows || []).reduce((sum, row) => sum + (Number(row.total) || 0), 0);
+        },
+
+        get finalReportApprovedBy() {
+            const approved = [...(this.projectApprovalHistory || [])].reverse().find(item => item.status === 'APPROVED');
+            return approved?.reviewer || 'Lead Estimator';
+        },
+
+        get finalReportApprovedAt() {
+            const approved = [...(this.projectApprovalHistory || [])].reverse().find(item => item.status === 'APPROVED');
+            return approved?.timestamp || '-';
+        },
+
+        exportFinalReport() {
+            if (!this.finalReportAvailable) {
+                alert('Laporan final belum tersedia.');
+                return;
+            }
+
+            const escapeHtml = (v) => String(v ?? '').replace(/[&<>"]/g, ch => ({
+                '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'
+            }[ch]));
+
+            const qtoMap = new Map((this.qtoRows || []).map(r => [
+                [r.description, r.material, r.size, r.spec].join('|'),
+                r
+            ]));
+
+            const rowsHtml = (this.costRows || []).map((row, i) => `
+                <tr>
+                    <td>${i + 1}</td>
+                    <td>${escapeHtml(row.description)}</td>
+                    <td>${escapeHtml(row.material)}</td>
+                    <td>${escapeHtml(row.size)}</td>
+                    <td>${escapeHtml(row.spec)}</td>
+                    <td class="center">${escapeHtml(row.quantity)} ${escapeHtml(row.unit || 'EA')}</td>
+                    <td class="right">${Number(row.unitPrice || 0).toLocaleString('id-ID')}</td>
+                    <td class="right">${Number(row.total || 0).toLocaleString('id-ID')}</td>
+                </tr>`).join('');
+
+            const approved = [...(this.projectApprovalHistory || [])].reverse().find(item => item.status === 'APPROVED');
+            const reportHtml = `<!doctype html>
+<html><head><meta charset="utf-8"><title>${escapeHtml(this.activeProject)} - Final BOQ Report</title>
+<style>
+body{font-family:Arial,sans-serif;color:#172033;font-size:11px;padding:28px}
+h1{font-size:20px;margin:0 0 5px} h2{font-size:13px;margin:22px 0 8px}
+.meta{color:#64748b;margin-bottom:18px}.status{display:inline-block;padding:5px 10px;border:1px solid #86efac;background:#f0fdf4;color:#15803d;border-radius:6px;font-weight:700}
+table{width:100%;border-collapse:collapse;margin-top:10px} th,td{border:1px solid #cbd5e1;padding:7px} th{background:#e2e8f0;text-align:left}.center{text-align:center}.right{text-align:right}
+.total{margin-top:12px;text-align:right;font-size:14px;font-weight:700}.note{margin-top:18px;padding:10px;background:#f8fafc;border:1px solid #e2e8f0}
+@page{size:landscape;margin:12mm}
+</style></head><body>
+<h1>${escapeHtml(this.activeProject)} — Final BOQ Report</h1>
+<div class="meta">Sheet: ${escapeHtml(this.qtoSourceSheet || this.activeSheet)} &nbsp;|&nbsp; Generated: ${escapeHtml(new Date().toLocaleString('id-ID'))}</div>
+<div class="status">APPROVED</div>
+<h2>Quantity Take-Off & Cost Summary</h2>
+<table><thead><tr><th>No</th><th>Description</th><th>Material</th><th>Size</th><th>Spec</th><th>Quantity</th><th>Unit Price</th><th>Total</th></tr></thead>
+<tbody>${rowsHtml}</tbody></table>
+<div class="total">TOTAL BOQ: ${Number(this.finalReportTotal || 0).toLocaleString('id-ID')}</div>
+<div class="note"><b>Approved By:</b> ${escapeHtml(approved?.reviewer || 'Lead Estimator')}<br><b>Approved At:</b> ${escapeHtml(approved?.timestamp || '-')}<br><b>Catatan:</b> ${escapeHtml(approved?.notes || 'Laporan disetujui oleh Lead Estimator.')}</div>
+</body></html>`;
+
+            const win = window.open('', '_blank', 'width=1200,height=800');
+            if (!win) return alert('Popup diblokir browser. Izinkan popup untuk export laporan final.');
+            win.document.write(reportHtml);
+            win.document.close();
+            win.focus();
+            setTimeout(() => win.print(), 300);
+        },
+
+        openActiveTasks() {
+            this.taskView = 'active';
+        },
+
+        openApprovalHistory() {
+            this.taskView = 'history';
+        },
+
+        openTaskMTOValve() {
+            this.activeSheet = 'Valve';
+            this.currentDashboardTab = 'workspace';
+            if (this.loginForm.role === 'Piping Engineer' && this.activeTaskCount > 0) {
+                this.alertMessage = '';
+            }
+        },
+
+        openApprovalDetail(item) {
+            this.approvalNote = item?.notes || '';
+            // Untuk approval yang sudah final, tampilkan laporan BOQ lengkap, bukan alert browser.
+            if (item?.status === 'APPROVED' && this.finalReportAvailable) {
+                this.loadWorkflowState();
+                this.showFinalReportModal = true;
+                return;
+            }
+            // Untuk status selain APPROVED, tetap gunakan dialog sederhana agar tidak mengubah workflow.
+            alert(`${item?.title || 'Detail Approval'}\n\nStatus: ${this.getApprovalStatusText(item?.status)}\nProject: ${item?.projectId || '-'}\nSheet: ${item?.sheet || '-'}\nReviewer: ${item?.reviewer || '-'}\nCatatan: ${item?.notes || '-'}`);
+        },
+
+        submitMTOToEstimator() {
+            if (this.loginForm.role !== 'Piping Engineer') return;
+            if (!this.currentRows.length) return alert('MTO masih kosong.');
+            const groups = this.getBomGroups();
+            if (!groups.length) return alert('Quantity Take-Off belum dapat dibuat dari data MTO ini.');
+            this.qtoRows = groups.map(g => ({ ...g }));
+            this.qtoSourceSheet = this.activeSheet;
+            this.qtoSubmittedAt = new Date().toISOString();
+            this.workflowStatus = 'SUBMITTED_TO_ESTIMATOR';
+            this.saveWorkflowState();
+            this.createWorkflowHistory('SUBMITTED_TO_ESTIMATOR', 'Quantity Take-Off dikirim ke Estimator', `Engineer mengirim ${this.qtoRows.length} kelompok material dari sheet ${this.activeSheet}. Quantity menjadi sumber BOQ Estimator.`);
+            alert('MTO berhasil dikirim ke Estimator.');
+        },
+
+        openCalculateBom() {
+            this.bomMaterialType = this.getBomMaterialOptions()[0] || 'Pipe';
+            this.bomSizeFilter = '';
+            this.bomSpecFilter = '';
+            this.bomOD = 0;
+            this.bomThickness = 0;
+            this.bomLength = 6;
+            this.bomQuantityInput = 0;
+            this.showBoqModal = true;
+            this.$nextTick(() => this.refreshBomQuantity());
+        },
+
+        refreshBomQuantity() {
+            const qty = this.getBomFilteredGroups().reduce((sum, item) => sum + item.quantity, 0);
+            this.bomQuantityInput = qty;
+            return qty;
+        },
+
+        getBomQuantity(row) {
+            const keys = Object.keys(row || {});
+            const key = keys.find(k => /^(qty|quantity|item count|item_count|count|jumlah)$/i.test(String(k).trim()))
+                || keys.find(k => /quantity|qty|item.?count|jumlah/i.test(String(k)));
+            const value = key ? Number(String(row[key]).replace(/,/g, '')) : NaN;
+            return Number.isFinite(value) && value > 0 ? value : 1;
+        },
+
+        getBomField(row, patterns) {
+            const key = Object.keys(row || {}).find(k => patterns.some(p => p.test(String(k))));
+            return key ? String(row[key] ?? '').trim() : '';
+        },
+
+        getBomMaterialOptions() {
+            const sheet = String(this.activeSheet || '').trim();
+            const map = {
+                'Valve': 'Valve', 'SP Items': 'SP Items', 'Support': 'Pipe Support',
+                'LineList': 'Pipe', 'Pipe': 'Pipe', 'Single Branch Fitting': 'Fitting',
+                'Tee': 'Fitting', 'Flange': 'Fitting', 'Elbow': 'Fitting', 'Nozzle': 'Fitting',
+                'Vessel': 'Vessel', 'Tank': 'Tank', 'Pump': 'Pump', 'Misc Equipment': 'Misc Equipment',
+                'Equipment': 'Equipment', 'Piping and Equipment': 'Equipment'
+            };
+            return [map[sheet] || sheet || 'Pipe'];
+        },
+
+        getBomSizeOptions() {
+            const values = new Set();
+            (Array.isArray(this.currentRows) ? this.currentRows : []).forEach(row => {
+                const value = this.getBomField(row, [/^size$/i, /line size/i, /available size/i]);
+                if (value) values.add(value);
+            });
+            return Array.from(values);
+        },
+
+        getBomSpecOptions() {
+            const values = new Set();
+            (Array.isArray(this.currentRows) ? this.currentRows : []).forEach(row => {
+                const value = this.getBomField(row, [/^spec$/i, /pipe\.?spec/i, /pipe spec/i]);
+                if (value) values.add(value);
+            });
+            return Array.from(values);
+        },
+
+        getBomGroups() {
+            const rows = Array.isArray(this.currentRows) ? this.currentRows : [];
+            const groups = new Map();
+            rows.forEach((row) => {
+                const material = this.getBomField(row, [/^material$/i, /material/i]) || '-';
+                const size = this.getBomField(row, [/^size$/i, /line size/i, /available size/i]) || '-';
+                const spec = this.getBomField(row, [/^spec$/i, /pipe\.?spec/i, /pipe spec/i]) || '-';
+                const desc = this.getBomField(row, [/long description/i, /short description/i, /description/i]) || this.activeSheet;
+                const key = [material, size, spec, desc].join('|');
+                if (!groups.has(key)) groups.set(key, { material, size, spec, description: desc, quantity: 0 });
+                groups.get(key).quantity += this.getBomQuantity(row);
+            });
+            return Array.from(groups.values());
+        },
+
+        getBomFilteredGroups() {
+            const size = String(this.bomSizeFilter || '').toLowerCase();
+            const spec = String(this.bomSpecFilter || '').toLowerCase();
+            const groups = this.getBomGroups().filter(item =>
+                (!size || item.size.toLowerCase() === size || item.size.toLowerCase().includes(size)) &&
+                (!spec || item.spec.toLowerCase() === spec || item.spec.toLowerCase().includes(spec))
+            );
+            return groups;
+        },
+
+        syncBomQuantity() {
+            const qty = this.getBomFilteredGroups().reduce((sum, item) => sum + item.quantity, 0);
+            if (!Number.isFinite(Number(this.bomQuantityInput)) || Number(this.bomQuantityInput) <= 0) {
+                this.bomQuantityInput = qty;
+            }
+            return qty;
+        },
+
+        get isPipeBom() {
+            return String(this.bomMaterialType || '').trim().toLowerCase() === 'pipe';
+        },
+
+        calculatePipeWeight() {
+            const od = Number(this.bomOD);
+            const t = Number(this.bomThickness);
+            const length = Number(this.bomLength);
+            const qty = Number(this.bomQuantityInput) || this.getBomFilteredGroups().reduce((sum, item) => sum + item.quantity, 0);
+            if (!(od > 0 && t > 0 && length > 0 && qty > 0)) return { kgm: 0, perPipe: 0, total: 0, qty };
+            const kgm = (od - t) * t * 0.2466;
+            const perPipe = kgm * length;
+            return { kgm, perPipe, total: perPipe * qty, qty };
+        },
+
+        get qtoTotalQuantity() {
+            return (this.qtoRows || []).reduce((sum, r) => sum + (Number(r.quantity) || 0), 0);
+        },
+
+        exportBOQ() {
+            const groups = this.getBomFilteredGroups();
+            if (!groups.length) return alert('Tidak ada data untuk Quantity Take-Off pada sheet ini.');
+
+            const rowsHtml = groups.map((item, i) => `
+                <tr>
+                    <td>${i + 1}</td>
+                    <td>${item.description}</td>
+                    <td>${item.material}</td>
+                    <td>${item.size}</td>
+                    <td>${item.spec}</td>
+                    <td>${item.quantity}</td>
+                    <td>EA</td>
+                </tr>`).join('');
+
+            const htmlReport = `<!doctype html><html><head><meta charset="utf-8"><title>Quantity Take-Off ${this.activeProject}</title>
+                <style>
+                    body{font-family:Arial,sans-serif;font-size:12px;padding:24px;color:#172033}
+                    h1{font-size:18px;margin:0 0 4px} p{color:#64748b}
+                    table{width:100%;border-collapse:collapse;margin-top:16px}
+                    th{background:#eaf0f6;font-weight:700} th,td{border:1px solid #cbd5e1;padding:7px;text-align:left}
+                    td:nth-child(1),td:nth-child(6){text-align:center}
+                </style></head><body>
+                <h1>${this.activeProject} — Quantity Take-Off</h1>
+                <p>Sheet: ${this.activeSheet} • ${new Date().toLocaleString('id-ID')}</p>
+                <table><thead><tr><th>No</th><th>Description</th><th>Material</th><th>Size</th><th>Spec</th><th>Quantity</th><th>Unit</th></tr></thead>
+                <tbody>${rowsHtml}</tbody></table></body></html>`;
+
+            const win = window.open('', '_blank');
+            if (!win) return alert('Popup diblokir browser. Izinkan popup untuk export laporan.');
+            win.document.write(htmlReport);
+            win.document.close();
+            setTimeout(() => win.print(), 300);
+        },
+
         printPDF() {
             const rows = this.filteredRows || [];
             if (!rows.length) return alert(`Tidak ada data pada sheet ${this.activeSheet}.`);

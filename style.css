@@ -14,7 +14,7 @@
 .excel-table-container {
     max-height: 72vh;
     width: 100%;
-    overflow-x: hidden !important;
+    overflow-x: auto !important;
     overflow-y: auto !important;
     position: relative;
     background-color: #ffffff;
@@ -50,39 +50,6 @@
     position: static !important;
     top: auto !important;
     z-index: auto !important;
-}
-
-/* ==========================================================
-   MENGHILANGKAN SEMUA EFEK STICKY / FREEZE PADA KOLOM
-   ========================================================== */
-.sticky-col-no,
-.sticky-col-desc,
-.sticky-col-standard,
-.sticky-col-mfg,
-.sticky-col-material,
-th.sticky-col-no,
-th.sticky-col-desc,
-th.sticky-col-standard,
-th.sticky-col-mfg,
-th.sticky-col-material {
-    position: static !important;
-    left: auto !important;
-    top: auto !important;
-    z-index: auto !important;
-    background-color: #ffffff !important;
-    box-shadow: none !important;
-    width: auto !important;
-    min-width: unset !important;
-    max-width: none !important;
-}
-
-/* Header kembali menggunakan background normal */
-th.sticky-col-no,
-th.sticky-col-desc,
-th.sticky-col-standard,
-th.sticky-col-mfg,
-th.sticky-col-material {
-    background-color: #f1f5f9 !important;
 }
 
 /* Warna background saat baris disorot (hover) */
@@ -176,155 +143,15 @@ th.sticky-col-material {
     }
 }
 
-/* Workspace Shell & Card Settings */
-main,
-main > *,
-.workspace-shell,
-.workspace-table-card,
-.excel-table-container {
-    min-width: 0 !important;
-}
-
-.workspace-shell {
-    height: calc(100vh - 112px) !important;
-    min-height: 0 !important;
-    max-width: 100% !important;
-    overflow: hidden !important;
-    display: flex !important;
-    flex-direction: column !important;
-}
-
-.workspace-table-card {
-    flex: 1 1 auto !important;
-    min-height: 0 !important;
-    max-width: 100% !important;
-    width: 100% !important;
-    overflow-x: hidden !important;
-}
-
-.workspace-table-card .excel-table-container {
-    flex: 1 1 0 !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    min-width: 0 !important;
-    min-height: 0 !important;
-    max-height: none !important;
-    overflow-x: hidden !important;
-    overflow-y: auto !important;
-    position: relative;
-}
-
-.workspace-table-card .excel-table {
-    width: max-content !important;
-    min-width: 0px !important;
-    max-width: none !important;
-}
-
 /* ==========================================================
-   DEDICATED BOTTOM SCROLLBAR (SATU-SATUNYA PENGONTROL GESER KANAN-KIRI)
+   WORKSPACE SHELL & TABEL - LAYOUT & SCROLLBAR (RAPI, TANPA DUPLIKASI)
+   Sebelumnya bagian ini berisi banyak blok CSS yang saling
+   menimpa (FIX FINAL, FINAL FIX, FINAL V2, V3, dst) untuk
+   selector yang sama. Sekarang dirapikan menjadi satu sumber
+   kebenaran per selector, dengan hasil akhir yang SAMA seperti
+   sebelumnya (tidak mengubah perilaku, hanya merapikan kode).
    ========================================================== */
 
-.workspace-table-card .table-bottom-scrollbar {
-    display: block !important;
-    width: 100% !important;
-    height: 16px !important;
-    min-height: 16px !important;
-    max-height: 16px !important;
-    overflow-x: scroll !important;
-    overflow-y: hidden !important;
-    background: #e2e8f0;
-    border-top: 1px solid #cbd5e1;
-    border-bottom: 1px solid #e2e8f0;
-    flex-shrink: 0 !important;
-}
-
-.table-bottom-scrollbar-spacer {
-    height: 1px !important;
-    min-width: 0px !important; /* Menyamai min-width dari .excel-table */
-}
-
-.workspace-table-card .table-bottom-scrollbar::-webkit-scrollbar {
-    height: 12px !important;
-}
-
-.workspace-table-card .table-bottom-scrollbar::-webkit-scrollbar-track {
-    background: #e2e8f0 !important;
-    border-radius: 7px !important;
-}
-
-.workspace-table-card .table-bottom-scrollbar::-webkit-scrollbar-thumb {
-    background: #64748b !important;
-    border-radius: 7px !important;
-    border: 2px solid #e2e8f0 !important;
-}
-
-.workspace-table-card .table-bottom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: #475569 !important;
-}
-
-/* ==========================================================
-   FIX FINAL - SCROLLBAR HORIZONTAL DI BAWAH TABEL
-   ========================================================== */
-
-/* Area data tidak menampilkan scrollbar horizontal sendiri. */
-.excel-table-container {
-    overflow-x: hidden !important;
-    overflow-y: auto !important;
-}
-
-/* Scrollbar horizontal satu-satunya, tepat di bawah tabel. */
-.table-bottom-scrollbar {
-    display: block !important;
-    width: 100% !important;
-    height: 17px !important;
-    min-height: 17px !important;
-    max-height: 17px !important;
-    overflow-x: auto !important;
-    overflow-y: hidden !important;
-    background: #e5eaf0 !important;
-    border-top: 1px solid #d5dde7 !important;
-    box-sizing: border-box !important;
-    flex: 0 0 17px !important;
-    scrollbar-width: auto !important;
-    scrollbar-color: #7b8798 #e5eaf0 !important;
-}
-
-.table-bottom-scrollbar-spacer {
-    display: block !important;
-    height: 1px !important;
-    min-height: 1px !important;
-    width: 0px;
-}
-
-/* Chrome / Edge */
-.table-bottom-scrollbar::-webkit-scrollbar {
-    height: 12px !important;
-}
-
-.table-bottom-scrollbar::-webkit-scrollbar-track {
-    background: #e5eaf0 !important;
-}
-
-.table-bottom-scrollbar::-webkit-scrollbar-thumb {
-    background: #7b8798 !important;
-    border-radius: 6px !important;
-    border: 2px solid #e5eaf0 !important;
-}
-
-.table-bottom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: #5f6b7a !important;
-}
-
-/* Jangan tampilkan scrollbar horizontal bawaan tabel. */
-.excel-table-container::-webkit-scrollbar:horizontal {
-    height: 0 !important;
-}
-
-/* ==========================================================
-   FINAL FIX - HORIZONTAL SCROLLBAR TIDAK BOLEH KELUAR KE SIDEBAR
-   ========================================================== */
-
-/* Cegah tabel yang sangat lebar membuat scrollbar milik seluruh halaman. */
 html,
 body {
     width: 100% !important;
@@ -335,17 +162,15 @@ body {
     overflow-x: hidden !important;
 }
 
-/* Layout utama tidak boleh ikut melebar karena tabel. */
 main,
-#dashboardPage,
-.workspace-shell,
-.workspace-shell > *,
-.workspace-table-card {
+main > *,
+.workspace-table-card,
+.excel-table-container {
     min-width: 0 !important;
     max-width: 100% !important;
 }
 
-/* Sidebar tetap berada di tempatnya dan tidak menjadi area scroll tabel. */
+/* Sidebar tetap di tempatnya, tidak ikut jadi area scroll tabel. */
 aside,
 .app-sidebar,
 #appSidebar,
@@ -355,172 +180,60 @@ aside,
     min-width: 0 !important;
 }
 
-/* ==========================================================
-   TABEL - HANYA SCROLLBAR BAWAH YANG DIPAKAI
-   ========================================================== */
-
-.workspace-table-card {
-    overflow-x: hidden !important;
-}
-
-.workspace-table-card .excel-table-container {
-    width: 100% !important;
-    min-width: 0 !important;
-    max-width: 100% !important;
-    overflow-x: hidden !important;
-    overflow-y: auto !important;
-}
-
-/* Tabel tetap boleh lebih lebar dari viewport, tetapi tidak
-   boleh memperlebar parent/page. */
-.workspace-table-card .excel-table {
-    width: max-content !important;
-    min-width: 0px !important;
-    max-width: none !important;
-}
-
-/* Scrollbar khusus tabel harus berada DI DALAM card tabel. */
-.workspace-table-card .table-bottom-scrollbar {
-    position: relative !important;
-    display: block !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    height: 17px !important;
-    min-height: 17px !important;
-    max-height: 17px !important;
-    overflow-x: auto !important;
-    overflow-y: hidden !important;
-    box-sizing: border-box !important;
-    flex: 0 0 17px !important;
-    background: #e5eaf0 !important;
-    border-top: 1px solid #d5dde7 !important;
-    scrollbar-width: auto !important;
-    scrollbar-color: #7b8798 #e5eaf0 !important;
-}
-
-.workspace-table-card .table-bottom-scrollbar-spacer {
-    display: block !important;
-    width: 0px !important;
-    min-width: 0px !important;
-    height: 1px !important;
-}
-
-/* Chrome / Edge */
-.workspace-table-card .table-bottom-scrollbar::-webkit-scrollbar {
-    height: 12px !important;
-}
-
-.workspace-table-card .table-bottom-scrollbar::-webkit-scrollbar-track {
-    background: #e5eaf0 !important;
-}
-
-.workspace-table-card .table-bottom-scrollbar::-webkit-scrollbar-thumb {
-    background: #7b8798 !important;
-    border-radius: 6px !important;
-    border: 2px solid #e5eaf0 !important;
-}
-
-/* ==========================================================
-   NAVIGASI 23 KATEGORI
-   ========================================================== */
-
-/* Jika navigasi kategori menggunakan overflow-x-auto,
-   scrollbar-nya tetap berada di dalam card dan tidak lari ke sidebar. */
-.workspace-shell [class*="overflow-x-auto"] {
-    min-width: 0 !important;
-    max-width: 100% !important;
-    overflow-x: auto !important;
-    overflow-y: hidden !important;
-    box-sizing: border-box !important;
-    scrollbar-width: auto !important;
-    scrollbar-color: #7b8798 #e5eaf0 !important;
-}
-
-/* Scrollbar kategori Chrome / Edge. */
-.workspace-shell [class*="overflow-x-auto"]::-webkit-scrollbar {
-    height: 12px !important;
-}
-
-.workspace-shell [class*="overflow-x-auto"]::-webkit-scrollbar-track {
-    background: #e5eaf0 !important;
-    border-radius: 6px !important;
-}
-
-.workspace-shell [class*="overflow-x-auto"]::-webkit-scrollbar-thumb {
-    background: #7b8798 !important;
-    border-radius: 6px !important;
-    border: 2px solid #e5eaf0 !important;
-}
-
-.workspace-shell [class*="overflow-x-auto"]::-webkit-scrollbar-thumb:hover {
-    background: #5f6b7a !important;
-}
-
-/* Tombol kategori tidak boleh mengecil sehingga tetap
-   membentuk area horizontal yang bisa digeser. */
-.workspace-shell [class*="overflow-x-auto"] > * {
-    flex-shrink: 0 !important;
-}
-
-/* Pastikan tidak ada horizontal scrollbar pada card/sidebar luar. */
-.workspace-shell,
-.workspace-table-card,
-aside {
-    overflow-x: hidden !important;
-}
-
-/* ==========================================================
-   FALLBACK UNTUK LAYOUT FLEX
-   ========================================================== */
-.flex-1,
-.flex-grow,
-[class*="flex-1"] {
-    min-width: 0 !important;
-}
-
-
-/* ==========================================================
-   FINAL TABLE RENDER FIX
-   - Mencegah container tabel collapse menjadi 0px setelah import
-   - Scrollbar bawah tetap terpisah dari tabel
-   ========================================================== */
+/* Card tabel: kolom flex, tidak pernah melebarkan halaman. */
 .workspace-table-card {
     display: flex !important;
     flex-direction: column !important;
+    flex: 1 1 auto !important;
     min-height: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
     overflow: hidden !important;
 }
 
+/* Area scroll vertikal tabel. Lebar tabel diatur oleh JS
+   (updateTableScrollbar) supaya sesuai jumlah kolom. */
 .workspace-table-card .excel-table-container {
     display: block !important;
+    box-sizing: border-box !important;
+    position: relative !important;
     width: 100% !important;
+    max-width: 100% !important;
     min-width: 0 !important;
     min-height: 280px !important;
     height: 420px !important;
     max-height: 55vh !important;
     flex: 0 0 420px !important;
-    overflow-x: hidden !important;
+    overflow-x: auto !important;
     overflow-y: auto !important;
     visibility: visible !important;
     opacity: 1 !important;
 }
 
-.workspace-table-card .excel-table {
-    display: table !important;
-    visibility: visible !important;
-    opacity: 1 !important;
-    width: max-content !important;
-    min-width: 0px !important;
-    max-width: none !important;
+/* Scrollbar horizontal bawaan tabel disembunyikan; kontrol geser
+   kanan-kiri satu-satunya ada di .table-bottom-scrollbar. */
+.excel-table-container::-webkit-scrollbar:horizontal {
+    height: 0 !important;
 }
 
-.workspace-table-card .excel-table thead,
-.workspace-table-card .excel-table tbody {
+.workspace-table-card .excel-table {
+    display: table !important;
+    width: max-content !important;
+    min-width: max-content !important;
+    max-width: none !important;
+    table-layout: auto !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+.workspace-table-card .excel-table thead {
     visibility: visible !important;
     display: table-header-group !important;
 }
 
 .workspace-table-card .excel-table tbody {
+    visibility: visible !important;
     display: table-row-group !important;
 }
 
@@ -532,178 +245,101 @@ aside {
 .workspace-table-card .excel-table th,
 .workspace-table-card .excel-table td {
     visibility: visible !important;
+    white-space: nowrap !important;
+    width: auto !important;
+    min-width: max-content !important;
+    max-width: none !important;
 }
 
+/* ==========================================================
+   DEDICATED BOTTOM SCROLLBAR (SATU-SATUNYA PENGONTROL GESER KANAN-KIRI)
+   ========================================================== */
 .workspace-table-card .table-bottom-scrollbar {
+    position: relative !important;
     display: block !important;
+    box-sizing: border-box !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    height: 17px !important;
+    min-height: 17px !important;
+    max-height: 17px !important;
     flex: 0 0 17px !important;
-    width: 100% !important;
-    height: 17px !important;
-    min-height: 17px !important;
     overflow-x: auto !important;
     overflow-y: hidden !important;
-}
-
-
-/* FINAL FIX: scrollbar bawah menjadi pengendali posisi horizontal tabel */
-.workspace-table-card .table-bottom-scrollbar {
-    display: block !important;
-    width: 100% !important;
-    height: 17px !important;
-    min-height: 17px !important;
-    overflow-x: auto !important;
-    overflow-y: hidden !important;
+    background: #e5eaf0 !important;
+    border-top: 1px solid #d5dde7 !important;
+    scrollbar-width: auto !important;
+    scrollbar-color: #7b8798 #e5eaf0 !important;
     cursor: grab;
 }
+
 .workspace-table-card .table-bottom-scrollbar:active {
     cursor: grabbing;
 }
+
 .workspace-table-card .table-bottom-scrollbar-spacer {
+    display: block !important;
+    width: 1px !important;
+    min-width: 1px !important;
     height: 1px !important;
     min-height: 1px !important;
-}
-
-
-/* ==========================================================
-   FINAL V2 - FULL TABLE WIDTH / BOTTOM SCROLLBAR
-   Tidak membatasi jumlah kolom.
-   ========================================================== */
-
-.workspace-table-card {
-    width: 100% !important;
-    max-width: 100% !important;
-    min-width: 0 !important;
-    overflow: hidden !important;
-}
-
-.workspace-table-card .excel-table-container {
-    width: 100% !important;
-    min-width: 0 !important;
-    max-width: 100% !important;
-    overflow-x: hidden !important;
-    overflow-y: auto !important;
-    position: relative !important;
-}
-
-.workspace-table-card .excel-table {
-    width: max-content !important;
-    min-width: max-content !important;
-    max-width: none !important;
-    table-layout: auto !important;
-}
-
-/* Semua kolom hasil import boleh menambah lebar tabel.
-   Tidak ada lagi batas 0px. */
-.workspace-table-card .excel-table th,
-.workspace-table-card .excel-table td {
-    white-space: nowrap !important;
-    width: auto !important;
     max-width: none !important;
 }
 
-.workspace-table-card .table-bottom-scrollbar {
-    width: 100% !important;
-    max-width: 100% !important;
-    min-width: 0 !important;
-    height: 17px !important;
-    min-height: 17px !important;
-    max-height: 17px !important;
-    display: block !important;
-    overflow-x: auto !important;
-    overflow-y: hidden !important;
-    box-sizing: border-box !important;
-    flex: 0 0 17px !important;
-    position: relative !important;
-}
-
-.workspace-table-card .table-bottom-scrollbar-spacer {
-    display: block !important;
-    height: 1px !important;
-    min-height: 1px !important;
-    width: 1px;
-    min-width: 1px;
-}
-
-
-/* ==========================================================
-   V3 - TABEL TIDAK DIBATASI LEBARNYA
-   Lebar tabel = jumlah lebar SEMUA kolom hasil import.
-   ========================================================== */
-
-.workspace-table-card {
-    width: 100% !important;
-    max-width: 100% !important;
-    min-width: 0 !important;
-    overflow: hidden !important;
-}
-
-.workspace-table-card .excel-table-container {
-    display: block !important;
-    width: 100% !important;
-    min-width: 0 !important;
-    max-width: 100% !important;
-    overflow-x: auto !important;
-    overflow-y: auto !important;
-    box-sizing: border-box !important;
-    position: relative !important;
-}
-
-/*
- * Jangan memberi min-width tetap.
- * JavaScript akan mengatur width sesuai jumlah seluruh kolom.
- */
-.workspace-table-card .excel-table {
-    display: table !important;
-    width: max-content !important;
-    min-width: max-content !important;
-    max-width: none !important;
-    table-layout: auto !important;
-}
-
-.workspace-table-card .excel-table th,
-.workspace-table-card .excel-table td {
-    white-space: nowrap !important;
-    width: auto !important;
-    min-width: max-content !important;
-    max-width: none !important;
-}
-
-/* Scrollbar bawah khusus tabel */
-.workspace-table-card .table-bottom-scrollbar {
-    display: block !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    min-width: 0 !important;
-    height: 17px !important;
-    min-height: 17px !important;
-    max-height: 17px !important;
-    overflow-x: auto !important;
-    overflow-y: hidden !important;
-    box-sizing: border-box !important;
-    flex: 0 0 17px !important;
-}
-
-.workspace-table-card .table-bottom-scrollbar-spacer {
-    display: block !important;
-    width: 1px;
-    min-width: 1px;
-    height: 1px !important;
-    max-width: none !important;
-}
-
+/* Chrome / Edge */
 .workspace-table-card .table-bottom-scrollbar::-webkit-scrollbar {
     height: 12px !important;
 }
 
 .workspace-table-card .table-bottom-scrollbar::-webkit-scrollbar-track {
     background: #e5eaf0 !important;
+    border-radius: 7px !important;
 }
 
 .workspace-table-card .table-bottom-scrollbar::-webkit-scrollbar-thumb {
     background: #7b8798 !important;
     border-radius: 6px !important;
+    border: 2px solid #e5eaf0 !important;
 }
 
+.workspace-table-card .table-bottom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #475569 !important;
+}
+
+/* ==========================================================
+   NAVIGASI 23 KATEGORI
+   PENYEBAB BUG "sheet Pipe dll tidak bisa diklik":
+   Baris ini sebelumnya overflow-x-auto (scroll horizontal) dengan
+   scrollbar yang nyaris tak terlihat (CSS-nya salah target ke class
+   ".workspace-shell" yang tidak pernah ada di HTML). Akibatnya sheet
+   yang posisinya tergeser ke kanan (Pipe, Tee, Nozzle, dst) terlihat
+   seperti hilang/tidak bisa diklik padahal cuma di luar area layar.
+   Sekarang semua kategori DIBUAT WRAP supaya selalu terlihat & bisa
+   diklik langsung, tanpa perlu scroll tersembunyi.
+   ========================================================== */
+.sheet-nav-buttons {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+}
+
+.sheet-nav-btn {
+    position: relative !important;
+    z-index: 25 !important;
+    pointer-events: auto !important;
+    cursor: pointer !important;
+    flex-shrink: 0 !important;
+}
+
+/* ==========================================================
+   FALLBACK UNTUK LAYOUT FLEX
+   ========================================================== */
+.flex-1,
+.flex-grow,
+[class*="flex-1"] {
+    min-width: 0 !important;
+}
 
 /* ==========================================================
    INLINE ADD DATA
@@ -728,140 +364,33 @@ aside {
 
 
 /* ==========================================================
-   BMBQ FINAL - 5 KOLOM FREEZE TANPA TUMPANG TINDIH
-   Freeze: No, Long Description (Family), Manufacturer,
-           Material, Material Code.
-   Semua kolom setelahnya tetap bergerak horizontal.
+   TABLE FREEZE - BATAS FREEZE PER SHEET (termasuk kolom No)
+   Kolom yang dibekukan ditentukan oleh freezeColumns (script.js),
+   dan selalu dicocokkan dengan kolom yang benar-benar ada di
+   sheet aktif (currentColumns). Kolom "No" di paling kiri SELALU
+   ikut freeze (index 0), diikuti kolom lain sesuai batas berikut:
+   - MTO/Valve (dan sheet MTO lain) : ... s.d. Manufacturer
+   - SP Items                       : ... s.d. Spec
+   - Pipe Support                   : ... s.d. Material
+   - Line List                      : ... s.d. Pipe.Spec
+   Kolom yang dibekukan disusun berjejer (freeze-col-0, freeze-col-1,
+   dst) via CSS var --freeze-left agar tidak saling menumpuk.
+   Kolom lain tetap bergerak horizontal.
+   Definisi lengkap posisi/warna freeze-col ada di satu blok terpadu
+   pada bagian "FINAL EXCEL-LIKE TABLE / FREEZE FIX" di bawah, supaya
+   tidak ada lagi beberapa definisi yang saling menimpa.
    ========================================================== */
-
-.workspace-table-card .excel-table {
-    --freeze-no-left: 0px;
-    --freeze-desc-left: 0px;
-    --freeze-mfg-left: 0px;
-    --freeze-material-left: 0px;
-    --freeze-material-code-left: 0px;
-}
-
-/* Area freeze: solid + sticky */
-.workspace-table-card .excel-table th.sticky-col-no,
-.workspace-table-card .excel-table td.sticky-col-no,
-.workspace-table-card .excel-table th.sticky-col-desc,
-.workspace-table-card .excel-table td.sticky-col-desc,
-.workspace-table-card .excel-table th.sticky-col-mfg,
-.workspace-table-card .excel-table td.sticky-col-mfg,
-.workspace-table-card .excel-table th.sticky-col-material,
-.workspace-table-card .excel-table td.sticky-col-material,
-.workspace-table-card .excel-table th.sticky-col-material-code,
-.workspace-table-card .excel-table td.sticky-col-material-code {
-    position: sticky !important;
-    background: #ffffff !important;
-    background-clip: padding-box !important;
-    box-shadow: none !important;
-}
-
-/* Setiap kolom memiliki LEFT yang berbeda.
-   Tidak ada lagi lima kolom yang sama-sama left:0. */
-.workspace-table-card .excel-table th.sticky-col-no,
-.workspace-table-card .excel-table td.sticky-col-no {
-    left: var(--freeze-no-left) !important;
-    width: 45px !important;
-    min-width: 45px !important;
-}
-
-.workspace-table-card .excel-table th.sticky-col-desc,
-.workspace-table-card .excel-table td.sticky-col-desc {
-    left: var(--freeze-desc-left) !important;
-    width: 210px !important;
-    min-width: 210px !important;
-}
-
-.workspace-table-card .excel-table th.sticky-col-mfg,
-.workspace-table-card .excel-table td.sticky-col-mfg {
-    left: var(--freeze-mfg-left) !important;
-    width: 150px !important;
-    min-width: 150px !important;
-}
-
-.workspace-table-card .excel-table th.sticky-col-material,
-.workspace-table-card .excel-table td.sticky-col-material {
-    left: var(--freeze-material-left) !important;
-    width: 150px !important;
-    min-width: 150px !important;
-}
-
-.workspace-table-card .excel-table th.sticky-col-material-code,
-.workspace-table-card .excel-table td.sticky-col-material-code {
-    left: var(--freeze-material-code-left) !important;
-    width: 160px !important;
-    min-width: 160px !important;
-    border-right: 2px solid #94a3b8 !important;
-}
-
-/* Header freeze berada di atas seluruh body */
-.workspace-table-card .excel-table thead th.sticky-col-no,
-.workspace-table-card .excel-table thead th.sticky-col-desc,
-.workspace-table-card .excel-table thead th.sticky-col-mfg,
-.workspace-table-card .excel-table thead th.sticky-col-material,
-.workspace-table-card .excel-table thead th.sticky-col-material-code {
-    top: 0 !important;
-    z-index: 60 !important;
-    background: #f1f5f9 !important;
-}
-
-/* Body freeze berada di atas kolom yang bergerak */
-.workspace-table-card .excel-table tbody td.sticky-col-no,
-.workspace-table-card .excel-table tbody td.sticky-col-desc,
-.workspace-table-card .excel-table tbody td.sticky-col-mfg,
-.workspace-table-card .excel-table tbody td.sticky-col-material,
-.workspace-table-card .excel-table tbody td.sticky-col-material-code {
-    z-index: 40 !important;
-}
-
-/* Saat hover, freeze tetap opaque */
-.workspace-table-card .excel-table tbody tr:hover > td.sticky-col-no,
-.workspace-table-card .excel-table tbody tr:hover > td.sticky-col-desc,
-.workspace-table-card .excel-table tbody tr:hover > td.sticky-col-mfg,
-.workspace-table-card .excel-table tbody tr:hover > td.sticky-col-material,
-.workspace-table-card .excel-table tbody tr:hover > td.sticky-col-material-code {
-    background: #f8fafc !important;
-}
-
-/* Baris Add Data tetap hijau muda pada area freeze */
-.workspace-table-card .excel-table tr.inline-new-row > td.sticky-col-no,
-.workspace-table-card .excel-table tr.inline-new-row > td.sticky-col-desc,
-.workspace-table-card .excel-table tr.inline-new-row > td.sticky-col-mfg,
-.workspace-table-card .excel-table tr.inline-new-row > td.sticky-col-material,
-.workspace-table-card .excel-table tr.inline-new-row > td.sticky-col-material-code {
+.workspace-table-card .excel-table tr.inline-new-row > td.freeze-col {
     background: #f7fff0 !important;
 }
 
-/* Input tidak boleh membuat lebar kolom freeze berubah */
-.workspace-table-card .excel-table td.sticky-col-no .excel-input,
-.workspace-table-card .excel-table td.sticky-col-desc .excel-input,
-.workspace-table-card .excel-table td.sticky-col-mfg .excel-input,
-.workspace-table-card .excel-table td.sticky-col-material .excel-input,
-.workspace-table-card .excel-table td.sticky-col-material-code .excel-input {
-    box-sizing: border-box !important;
-    max-width: 100% !important;
-}
-
-/* Print: freeze tidak diperlukan */
 @media print {
-    .workspace-table-card .excel-table th.sticky-col-no,
-    .workspace-table-card .excel-table td.sticky-col-no,
-    .workspace-table-card .excel-table th.sticky-col-desc,
-    .workspace-table-card .excel-table td.sticky-col-desc,
-    .workspace-table-card .excel-table th.sticky-col-mfg,
-    .workspace-table-card .excel-table td.sticky-col-mfg,
-    .workspace-table-card .excel-table th.sticky-col-material,
-    .workspace-table-card .excel-table td.sticky-col-material,
-    .workspace-table-card .excel-table th.sticky-col-material-code,
-    .workspace-table-card .excel-table td.sticky-col-material-code {
+    .workspace-table-card .excel-table th.freeze-col,
+    .workspace-table-card .excel-table td.freeze-col {
         position: static !important;
         left: auto !important;
     }
 }
-
 
 /* ==========================================================
    FILTER KOLOM - GAYA EXCEL
@@ -1151,4 +680,142 @@ aside {
     .column-filter-btn {
         display: none !important;
     }
+}
+
+
+/* ==========================================================
+   FINAL EXCEL-LIKE TABLE / FREEZE FIX (dirapikan, tanpa duplikasi)
+   Semua kolom freeze mengikuti urutan tabel asli. Tidak ada
+   kolom yang dipindahkan, ditumpuk, atau dibuat celah kosong.
+   ========================================================== */
+.workspace-table-card .excel-table {
+    table-layout: auto !important;
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
+    background: #ffffff !important;
+}
+
+.workspace-table-card .excel-table th,
+.workspace-table-card .excel-table td {
+    box-sizing: border-box !important;
+    height: 36px !important;
+    min-height: 36px !important;
+    padding: 6px 10px !important;
+    border-right: 1px solid #d7dee8 !important;
+    border-bottom: 1px solid #d7dee8 !important;
+    border-top: 0 !important;
+    background: #ffffff !important;
+    color: #334155 !important;
+    white-space: nowrap !important;
+    vertical-align: middle !important;
+}
+
+.workspace-table-card .excel-table thead th {
+    height: 36px !important;
+    background: #eef2f6 !important;
+    color: #172033 !important;
+    font-weight: 700 !important;
+    border-top: 1px solid #d7dee8 !important;
+}
+
+.workspace-table-card .excel-table tbody tr:hover td {
+    background: #f7f9fb !important;
+}
+
+/* Freeze hanya menempel; tidak mengubah urutan kolom. */
+.workspace-table-card .excel-table th.freeze-col,
+.workspace-table-card .excel-table td.freeze-col {
+    position: sticky !important;
+    left: var(--freeze-left, 0px) !important;
+    background: #ffffff !important;
+    background-clip: padding-box !important;
+    border-right: 1px solid #d7dee8 !important;
+    z-index: 40 !important;
+}
+
+.workspace-table-card .excel-table thead th.freeze-col {
+    background: #eef2f6 !important;
+    z-index: 70 !important;
+}
+
+.workspace-table-card .excel-table tbody tr:hover td.freeze-col {
+    background: #f7f9fb !important;
+}
+
+/* Satu garis batas tegas hanya pada kolom freeze terakhir. */
+.workspace-table-card .excel-table th.freeze-col.freeze-last,
+.workspace-table-card .excel-table td.freeze-col.freeze-last {
+    border-right: 2px solid #9aa8b8 !important;
+    box-shadow: 2px 0 0 rgba(154,168,184,.12) !important;
+}
+
+.workspace-table-card .excel-table td .excel-input,
+.workspace-table-card .excel-table td.freeze-col .excel-input {
+    box-sizing: border-box !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    height: 24px !important;
+    padding: 2px 4px !important;
+    border: 1px solid transparent !important;
+    background: transparent !important;
+    color: #334155 !important;
+}
+
+.workspace-table-card .excel-table td .excel-input:focus {
+    background: #ffffff !important;
+    border-color: #82c341 !important;
+    outline: none !important;
+}
+
+.table-bottom-scrollbar {
+    width: 100% !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    height: 18px !important;
+    background: #eef2f7 !important;
+    border-top: 1px solid #dbe3ec !important;
+}
+
+.table-bottom-scrollbar-spacer {
+    height: 1px !important;
+}
+
+/* ==========================================================
+   FIX NAVIGASI SHEET - 2026-08-13
+   Freeze/scroll table tidak boleh mengambil area klik dari
+   tombol navigasi sheet. Navigasi selalu berada di layer atas.
+   ========================================================== */
+.workspace-table-card {
+    position: relative !important;
+    z-index: 1 !important;
+}
+
+.sheet-navigation-card {
+    position: relative !important;
+    z-index: 20 !important;
+    pointer-events: auto !important;
+}
+
+.sheet-navigation-card > div {
+    pointer-events: auto !important;
+}
+
+.sheet-navigation-card button {
+    position: relative !important;
+    z-index: 25 !important;
+    pointer-events: auto !important;
+    cursor: pointer !important;
+}
+
+.sheet-navigation-card .sheet-nav-buttons {
+    position: relative !important;
+    z-index: 21 !important;
+    pointer-events: auto !important;
+}
+
+/* Jangan biarkan sticky cell/filter layer keluar dari kartu tabel. */
+.workspace-table-card .excel-table-container,
+.workspace-table-card .table-bottom-scrollbar {
+    position: relative !important;
+    z-index: 1 !important;
 }
