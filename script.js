@@ -26,8 +26,6 @@ function appData() {
         currentPage: 1,
         itemsPerPage: 15,
         tableRenderKey: 0,
-        _columnsCacheKey: null,
-        _columnsCacheValue: null,
 
         // Filter per kolom seperti Excel.
         // Key = nama kolom, value = daftar nilai yang dipilih.
@@ -44,20 +42,12 @@ function appData() {
         newInlineRow: {},
 
         showAddModal: false,
+        showBomModal: false,
         showBoqModal: false,
-        showCostBoqModal: false,
         showApproveModal: false,
-        showFinalReportModal: false,
         taskView: 'active',
         approvalHistory: [],
         approvalNote: '',
-        costRows: [],
-        costNotes: '',
-        // Snapshot Quantity Take-Off yang dikirim Engineer ke Estimator.
-        qtoRows: [],
-        qtoSourceSheet: '',
-        qtoSubmittedAt: '',
-        workflowStatus: 'DRAFT',
         showModuleModal: false,
 
         // State Create Project
@@ -77,16 +67,8 @@ function appData() {
         activeModuleName: '',
         moduleDescription: '',
 
-        // Calculate BOM: Quantity Take-Off (tanpa harga)
+        activePriceLevel: 'Menengah',
         boqCurrency: 'USD',
-        bomMaterialType: 'Pipe',
-        bomMaterialFilter: '',
-        bomSizeFilter: '',
-        bomSpecFilter: '',
-        bomQuantityInput: 0,
-        bomLength: 6,
-        bomOD: 0,
-        bomThickness: 0,
         
         newRowForm: {
             longDesc: '',
@@ -222,9 +204,9 @@ function appData() {
             this.loadTableStorage();
 
             this.normalizeAllProjectsData();
+            this.loadBomBoqStorage();
             this.refreshSheetList();
             this.loadApprovalHistory();
-            this.loadWorkflowState();
             this.saveStorage();
         },
 
@@ -511,8 +493,17 @@ function appData() {
                         isApproved: false,
                         approvedAt: '',
                         version: 0,
-                        progress: '0%'
+                        progress: '0%',
+                        workflowStatus: 'DRAFT',
+                        revisionNotes: '',
+                        bom: null,
+                        boq: null
                     };
+                } else {
+                    project.meta.workflowStatus ||= 'DRAFT';
+                    project.meta.revisionNotes ||= '';
+                    if (!('bom' in project.meta)) project.meta.bom = null;
+                    if (!('boq' in project.meta)) project.meta.boq = null;
                 }
 
                 // Hanya pastikan tipe data benar.
@@ -547,6 +538,50 @@ function appData() {
 
         getProjectMetaStorageKey() {
             return 'tripatra_project_meta_v4';
+        },
+
+        getBomStorageKey(projectKey) {
+            return `tripatra_bom_v4::${encodeURIComponent(String(projectKey || 'default'))}`;
+        },
+
+        getBoqStorageKey(projectKey) {
+            return `tripatra_boq_v4::${encodeURIComponent(String(projectKey || 'default'))}`;
+        },
+
+        loadBomBoqStorage() {
+            Object.entries(this.allProjectsData || {}).forEach(([projectKey, project]) => {
+                if (!project?.meta) return;
+                try {
+                    const bomRaw = localStorage.getItem(this.getBomStorageKey(projectKey));
+                    const boqRaw = localStorage.getItem(this.getBoqStorageKey(projectKey));
+                    if (bomRaw) {
+                        const bom = JSON.parse(bomRaw);
+                        if (bom && typeof bom === 'object') project.meta.bom = bom;
+                    }
+                    if (boqRaw) {
+                        const boq = JSON.parse(boqRaw);
+                        if (boq && typeof boq === 'object') project.meta.boq = boq;
+                    }
+                } catch (error) {
+                    console.warn('BOM/BOQ storage tidak dapat dibaca:', error);
+                }
+            });
+        },
+
+        saveBomBoqStorage() {
+            Object.entries(this.allProjectsData || {}).forEach(([projectKey, project]) => {
+                const bom = project?.meta?.bom;
+                const boq = project?.meta?.boq;
+                try {
+                    if (bom) localStorage.setItem(this.getBomStorageKey(projectKey), JSON.stringify(bom));
+                    else localStorage.removeItem(this.getBomStorageKey(projectKey));
+                    if (boq) localStorage.setItem(this.getBoqStorageKey(projectKey), JSON.stringify(boq));
+                    else localStorage.removeItem(this.getBoqStorageKey(projectKey));
+                } catch (error) {
+                    console.error('Gagal menyimpan BOM/BOQ terpisah:', error);
+                    alert('Penyimpanan BOM/BOQ gagal karena kapasitas browser penuh. Data tabel Excel tidak dihapus.');
+                }
+            });
         },
 
         loadProjectMetaStorage() {
@@ -622,11 +657,19 @@ function appData() {
         },
 
         saveStorage() {
+            // Metadata ringan; BOM/BOQ besar selalu disimpan terpisah.
             const metas = {};
             Object.entries(this.allProjectsData || {}).forEach(([projectKey, project]) => {
-                metas[projectKey] = project?.meta || {};
+                const meta = project?.meta || {};
+                const { bom, boq, ...lightMeta } = meta;
+                metas[projectKey] = lightMeta;
             });
-            localStorage.setItem(this.getProjectMetaStorageKey(), JSON.stringify(metas));
+            try {
+                localStorage.setItem(this.getProjectMetaStorageKey(), JSON.stringify(metas));
+            } catch (error) {
+                console.error('Metadata project gagal disimpan:', error);
+            }
+            this.saveBomBoqStorage();
 
             Object.entries(this.allProjectsData || {}).forEach(([projectKey, project]) => {
                 Object.keys(project || {}).forEach(sheetName => {
@@ -637,11 +680,11 @@ function appData() {
 
         switchProject() {
             this.loadTableStorage();
+            this.loadBomBoqStorage();
             this.currentPage = 1;
             this.globalSearch = '';
             this.columnFilters = {};
             this.closeColumnFilter();
-            this.loadWorkflowState();
         },
 
         // ==========================================================
@@ -709,7 +752,11 @@ function appData() {
                     isApproved: false,
                     approvedAt: '',
                     version: 0,
-                    progress: '0%'
+                    progress: '0%',
+                    workflowStatus: 'DRAFT',
+                    revisionNotes: '',
+                    bom: null,
+                    boq: null
                 }
             };
 
@@ -925,28 +972,6 @@ function appData() {
         },
 
         get currentColumns() {
-            // PERBAIKAN PERFORMA (delay lama saat pindah ke sheet MTO yang
-            // datanya sudah besar, mis. Pipe s.d. Piping and Equipment):
-            // Sebelumnya fungsi ini menghitung ulang UNION seluruh header
-            // dari SEMUA baris SETIAP kali dipanggil. Karena dipanggil untuk
-            // setiap baris yang dirender (bukan cuma sekali per tabel), pada
-            // sheet dengan ratusan/ribuan baris hasil import Excel ini jadi
-            // sangat berat dan bikin tampilan terasa lambat/nge-lag saat
-            // sheet tersebut diklik. Sekarang hasilnya di-cache dan hanya
-            // dihitung ulang saat project/sheet aktif berubah atau saat ada
-            // perubahan data (tableRenderKey berubah), bukan setiap render.
-            const cacheKey = this.activeProject + '::' + this.activeSheet + '::' + this.tableRenderKey;
-            if (this._columnsCacheKey === cacheKey) {
-                return this._columnsCacheValue;
-            }
-
-            const result = this.computeCurrentColumns();
-            this._columnsCacheKey = cacheKey;
-            this._columnsCacheValue = result;
-            return result;
-        },
-
-        computeCurrentColumns() {
             const exactSchema = this.getExactSchema(this.activeSheet);
             if (exactSchema) {
                 // Number/No tetap tersimpan, tetapi kolom nomor sudah disediakan
@@ -959,66 +984,109 @@ function appData() {
                 return ['Material', 'Material Code', 'Spec', 'Size', 'Pressure Class', 'Line Number Tag', 'Status'];
             }
 
-            // Untuk sheet MTO, ambil UNION seluruh header dari semua baris.
-            // Urutan tetap mengikuti kemunculan pertama di Excel, sehingga
-            // data yang hanya terisi pada baris tertentu tidak pernah hilang
-            // hanya karena kolom tersebut kosong pada baris pertama.
-            const ordered = [];
-            const seen = new Set();
-            rows.forEach(row => {
-                Object.keys(row || {}).forEach(col => {
-                    if (col === 'Number' || col === 'No') return;
-                    const key = String(col);
-                    const normalized = key.toLowerCase();
-                    if (seen.has(normalized)) return;
-                    seen.add(normalized);
-                    ordered.push(key);
-                });
-            });
-            return ordered;
+            // Untuk sheet MTO lain, ikuti urutan header dari baris pertama.
+            return Object.keys(rows[0] || {}).filter(col =>
+                col !== 'Number' && col !== 'No'
+            );
         },
 
         get freezeColumns() {
-            // FREEZE HARUS BERDASARKAN URUTAN ASLI EXCEL.
-            // Tidak pernah memindahkan, mengurutkan, atau menyisipkan kolom.
-            // Kolom No selalu berada paling kiri dan ikut freeze.
-            const columns = this.currentColumns || [];
-            if (!columns.length) return [];
-
-            // MTO: batas freeze tepat di MANUFACTURER.
-            // Artinya: semua kolom dari paling kiri sampai Manufacturer diam,
-            // sedangkan kolom setelah Manufacturer bergerak bersama scrollbar.
-            // Sheet khusus tetap memakai batas yang sebelumnya sudah disepakati.
-            const targetBySheet = {
+            // Freeze dari kiri sampai kolom batas berikut (termasuk kolom
+            // batasnya), sisanya tetap bisa digeser. Kolom "No" di paling
+            // kiri SELALU ikut freeze secara terpisah (lihat getNoFreezeClass).
+            //
+            //   Tabel                                  | Freeze dari kiri sampai
+            //   ---------------------------------------|-------------------------
+            //   MTO Pipe & Fitting Valve                | Material
+            //   SP Items                                | Spec
+            //   Pipe Support                             | Material
+            //   Line List                                | Seq. No
+            //   Vessel / Tank / Pump / Misc Equipment /
+            //   Equipment / Piping and Equipment         | Long Description (Size)
+            const boundaryBySheet = {
+                'Valve': 'Material',
                 'SP Items': 'Spec',
                 'Support': 'Material',
-                'LineList': 'Pipe.Spec'
+                'LineList': 'Seq. No',
+                'Vessel': 'Long Description (Size)',
+                'Tank': 'Long Description (Size)',
+                'Pump': 'Long Description (Size)',
+                'Misc Equipment': 'Long Description (Size)',
+                'Equipment': 'Long Description (Size)',
+                'Piping and Equipment': 'Long Description (Size)'
             };
 
-            const target = targetBySheet[this.activeSheet] || 'Manufacturer';
-            const targetIndex = columns.indexOf(target);
+            const columns = this.currentColumns || [];
+            // Sheet MTO lain (Tee, Flange, Elbow, dst) mengikuti pola yang
+            // sama seperti Valve: freeze sampai Material.
+            const boundary = boundaryBySheet[this.activeSheet]
+                || boundaryBySheet['Valve'];
 
-            // Jika Manufacturer tidak ditemukan pada suatu MTO sheet, jangan
-            // memaksakan sticky yang bisa menyebabkan overlap. Freeze hanya No.
-            if (targetIndex < 0) return [];
+            const boundaryIndex = columns.indexOf(boundary);
+            if (boundaryIndex !== -1) return columns.slice(0, boundaryIndex + 1);
 
-            return columns.slice(0, targetIndex + 1);
+            // Fallback: kalau kolom batas tidak ditemukan pada data sheet ini
+            // (mis. hasil import dengan header berbeda), coba freeze sampai
+            // "Long Description (Size)" atau "Long Description (Family)"
+            // (kolom deskripsi/identitas baris yang paling umum dipakai di
+            // seluruh sheet MTO), baru fallback ke kolom pertama.
+            const genericBoundary = columns.includes('Long Description (Size)')
+                ? 'Long Description (Size)'
+                : (columns.includes('Long Description (Family)')
+                    ? 'Long Description (Family)'
+                    : null);
+
+            if (genericBoundary) {
+                const idx = columns.indexOf(genericBoundary);
+                return columns.slice(0, idx + 1);
+            }
+
+            return columns.length ? [columns[0]] : [];
         },
 
         isFreezeColumn(column) {
             return this.freezeColumns.includes(column);
         },
 
+        // Sheet keluarga Equipment (Vessel, Tank, Pump, Misc Equipment,
+        // Equipment) SELALU pakai nomor urut baris polos (1, 2, 3, ...),
+        // tidak memakai nomor tag asli dari Excel (mis. 6001, 3000A),
+        // supaya kolom NO konsisten sebagai nomor baris biasa.
+        //
+        // Sheet lain tetap memakai Number/No asli kalau memang valid;
+        // hanya placeholder kosong atau "?" yang diganti nomor urut.
+        getRowNumber(row, index) {
+            const sequentialOnlySheets = [
+                'Vessel', 'Tank', 'Pump', 'Misc Equipment', 'Equipment'
+            ];
+
+            const sequentialNumber = () =>
+                String((this.currentPage - 1) * this.itemsPerPage + index + 1);
+
+            if (sequentialOnlySheets.includes(this.activeSheet)) {
+                return sequentialNumber();
+            }
+
+            const raw = row?.Number ?? row?.No ?? '';
+            const normalized = String(raw).trim();
+            const isPlaceholder = normalized === '' || normalized === '?';
+
+            if (!isPlaceholder) return normalized;
+
+            return sequentialNumber().padStart(2, '0');
+        },
+
+        // Kolom "No" di paling kiri selalu ikut dibekukan (index 0),
+        // baru diikuti kolom-kolom dari freezeColumns (index 1, 2, dst)
+        // supaya semuanya berjejer rapi tanpa saling menumpuk.
         getNoFreezeClass() {
-            const noClass = 'freeze-col freeze-col-0';
-            return this.freezeColumns.length === 0 ? `${noClass} freeze-last` : noClass;
+            return 'freeze-col freeze-col-0';
         },
 
         getFreezeClass(column) {
             const freezeIndex = this.freezeColumns.indexOf(column);
             if (freezeIndex === -1) return '';
-            const isLast = freezeIndex === this.freezeColumns.length - 1;
-            return `freeze-col freeze-col-${freezeIndex + 1}${isLast ? ' freeze-last' : ''}`;
+            return `freeze-col freeze-col-${freezeIndex + 1}`;
         },
 
         get filteredRows() {
@@ -1219,7 +1287,6 @@ function appData() {
         this.globalSearch = '';
         this.columnFilters = {};
         this.closeColumnFilter();
-        this.tableRenderKey++;
 
         this.$nextTick(() => {
             this.updateTableScrollbar();
@@ -1368,24 +1435,6 @@ function appData() {
                 longDesc: '', material: 'CS', spec: 'CS150', size: '2"', pressure: '150',
                 wasteFactor: '5', tag: '', qty: '', unit: '', service: '', supportType: ''
             };
-        },
-
-        getDisplayRowNumber(row, index) {
-            // Untuk sheet equipment (Vessel s.d. Piping and Equipment),
-            // kolom NO adalah nomor urut tabel, bukan Equipment/Tag ID dari Excel.
-            const equipmentSheets = new Set([
-                'Vessel', 'Tank', 'Pump', 'Misc Equipment',
-                'Equipment', 'Piping and Equipment'
-            ]);
-
-            if (equipmentSheets.has(String(this.activeSheet || '').trim())) {
-                return String((this.currentPage - 1) * this.itemsPerPage + index + 1).padStart(2, '0');
-            }
-
-            // Sheet lain tetap mempertahankan nomor asli dari Excel.
-            if (row?.Number !== undefined && row?.Number !== '') return row.Number;
-            if (row?.No !== undefined && row?.No !== '') return row.No;
-            return String((this.currentPage - 1) * this.itemsPerPage + index + 1).padStart(2, '0');
         },
 
         changeSheet(sheetName) {
@@ -1924,519 +1973,879 @@ function appData() {
         },
 
         // ==========================================================
-        // WORKFLOW MTO -> ESTIMATOR -> LEAD / SPV
+        formatCurrency(value) {
+            const n = Number(value) || 0;
+            const currency = this.boqCurrency === 'IDR' ? 'IDR' : 'USD';
+            return new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 2 }).format(n);
+        },
+
+        // WORKFLOW ENGINEER -> ESTIMATOR -> LEAD -> ENGINEER
         // ==========================================================
-        get workflowStorageKey() {
-            return `tripatra_workflow_v1::${encodeURIComponent(String(this.activeProject || 'PRJ-3000'))}`;
+        get workflowStatus() {
+            return this.allProjectsData?.[this.activeProject]?.meta?.workflowStatus || 'DRAFT';
         },
 
-        loadApprovalHistory() {
-            // Riwayat approval sekarang disimpan per project pada workflow storage.
-            this.approvalHistory = [];
+        get workflowStatusText() {
+            const map = {
+                DRAFT: 'Draft - Pekerjaan Engineer',
+                BOM_CALCULATED: 'BOM / BQ Sudah Dihitung',
+                SUBMITTED_TO_ESTIMATOR: 'Menunggu Estimator',
+                BOQ_CALCULATED: 'BOQ Sudah Dihitung',
+                SUBMITTED_TO_LEAD: 'Menunggu Lead Review',
+                REVISION_REQUIRED: 'Revisi Diperlukan - Kembali ke Engineer',
+                APPROVED: 'Approved - Laporan Final'
+            };
+            return map[this.workflowStatus] || this.workflowStatus;
         },
 
-        loadWorkflowState() {
+        get workflowStatusClass() {
+            const s = this.workflowStatus;
+            if (s === 'APPROVED') return 'bg-emerald-100 text-emerald-700 border-emerald-200';
+            if (s === 'REVISION_REQUIRED') return 'bg-amber-100 text-amber-700 border-amber-200';
+            if (s === 'SUBMITTED_TO_LEAD' || s === 'SUBMITTED_TO_ESTIMATOR') return 'bg-sky-100 text-sky-700 border-sky-200';
+            return 'bg-slate-100 text-slate-700 border-slate-200';
+        },
+
+        saveProjectMetaOnly() {
+            const metas = {};
+            Object.entries(this.allProjectsData || {}).forEach(([projectKey, project]) => {
+                const meta = project?.meta || {};
+                // Metadata hanya menyimpan status/proyek. BOM dan BOQ besar disimpan
+                // pada storage terpisah agar hasil 641 item tidak hilang karena quota.
+                const { bom, boq, ...lightMeta } = meta;
+                metas[projectKey] = lightMeta;
+            });
             try {
-                const raw = localStorage.getItem(this.workflowStorageKey);
-                if (!raw) {
-                    this.workflowStatus = 'DRAFT';
-                    this.approvalHistory = [];
-                    return;
-                }
-                const data = JSON.parse(raw) || {};
-                this.workflowStatus = data.status || 'DRAFT';
-                this.approvalHistory = Array.isArray(data.history) ? data.history : [];
-                this.costRows = Array.isArray(data.costRows) ? data.costRows : [];
-                this.qtoRows = Array.isArray(data.qtoRows) ? data.qtoRows : [];
-                this.qtoSourceSheet = data.qtoSourceSheet || '';
-                this.qtoSubmittedAt = data.qtoSubmittedAt || '';
-            } catch (e) {
-                console.warn('Workflow tidak dapat dibaca:', e);
-                this.workflowStatus = 'DRAFT';
-                this.approvalHistory = [];
-                this.costRows = [];
-                this.qtoRows = [];
-                this.qtoSourceSheet = '';
-                this.qtoSubmittedAt = '';
+                localStorage.setItem(this.getProjectMetaStorageKey(), JSON.stringify(metas));
+                this.saveBomBoqStorage();
+            } catch (error) {
+                console.error('Gagal menyimpan metadata project:', error);
+                alert('Metadata project gagal disimpan. Data BOM/BOQ tetap dicoba disimpan pada storage terpisah.');
+                this.saveBomBoqStorage();
             }
         },
 
-        saveWorkflowState() {
-            const payload = {
-                status: this.workflowStatus,
-                history: this.approvalHistory || [],
-                costRows: this.costRows || [],
-                qtoRows: this.qtoRows || [],
-                qtoSourceSheet: this.qtoSourceSheet || '',
-                qtoSubmittedAt: this.qtoSubmittedAt || '',
-                updatedAt: new Date().toISOString()
+        setWorkflowStatus(status, note = '') {
+            const project = this.allProjectsData?.[this.activeProject];
+            if (!project) return;
+            if (!project.meta) project.meta = {};
+            project.meta.workflowStatus = status;
+            project.meta.revisionNotes = note || project.meta.revisionNotes || '';
+            project.meta.workflowUpdatedAt = new Date().toLocaleString('id-ID');
+            // Jangan serialize semua tabel Excel setiap perubahan status.
+            this.saveProjectMetaOnly();
+        },
+
+        openCalculateBOM() {
+            if (this.loginForm.role !== 'Piping Engineer') {
+                alert('Calculate BOM hanya dapat dilakukan oleh Piping Engineer.');
+                return;
+            }
+
+            const status = this.workflowStatus;
+
+            // Jika sudah final, Engineer melihat laporan final.
+            // Data final tidak dihitung ulang/ditimpa.
+            if (status === 'APPROVED') {
+                const finalApproval = this.latestApproval || {
+                    status: 'APPROVED',
+                    notes: 'Laporan final telah disetujui oleh Lead Estimator.'
+                };
+                this.printFinalReportPDF(finalApproval);
+                return;
+            }
+
+            // Jika sedang menunggu role berikutnya, tampilkan hasil BOM yang sudah ada.
+            if (status === 'SUBMITTED_TO_ESTIMATOR' || status === 'SUBMITTED_TO_LEAD') {
+                const existingBom = this.allProjectsData?.[this.activeProject]?.meta?.bom;
+                if (existingBom?.details?.length) {
+                    this.showBomModal = true;
+                    return;
+                }
+                alert('BOM sudah dikirim ke tahap berikutnya dan sedang menunggu proses Estimator/Lead.');
+                return;
+            }
+
+            const existingBom = this.allProjectsData?.[this.activeProject]?.meta?.bom;
+            if (existingBom?.details?.length && existingBom.sourceSheet === 'ALL_MTO') {
+                this.showBomModal = true;
+                return;
+            }
+
+            this.calculateBOM();
+        },
+
+        getNumeric(row, keys) {
+            for (const key of keys) {
+                const value = row?.[key];
+                if (value !== undefined && value !== null && String(value).trim() !== '') {
+                    const n = Number(String(value).replace(/,/g, '').replace(/[^0-9.\-]/g, ''));
+                    if (Number.isFinite(n)) return n;
+                }
+            }
+            return 0;
+        },
+
+        getText(row, keys, fallback = '-') {
+            for (const key of keys) {
+                const value = row?.[key];
+                if (value !== undefined && value !== null && String(value).trim() !== '') return String(value).trim();
+            }
+            return fallback;
+        },
+
+        sanitizeLineNo(value) {
+            const v = String(value ?? '').trim();
+            // Jangan menampilkan placeholder mentah seperti ?->? sebagai Line No.
+            if (!v || /^(\?\s*(?:[-–—]|->|→)\s*\?)+$/.test(v) || /^line\s*list[-_ ]?\d+$/i.test(v)) {
+                return '-';
+            }
+            return v;
+        },
+
+        recalculateBOM() {
+            // Tombol Hitung Ulang harus benar-benar menghitung ulang data sheet aktif.
+            // Jangan menutup modal dan jangan menulis ulang seluruh data Excel.
+            try {
+                this.calculateBOM(true);
+            } catch (error) {
+                console.error('Calculate BOM error:', error);
+                alert('Perhitungan BOM gagal dijalankan. Periksa Console untuk detail error.');
+            }
+        },
+
+        getBomField(row, field, sheetName) {
+            const sheet = String(sheetName || row?.__sheet || '').trim().toLowerCase();
+            const aliases = {
+                lineNo: ['Line No.', 'Line No', 'LINE NO.', 'Complete Line No.', 'Line Number Tag', 'LINE NUMBER TAG', 'Tag', 'TAG', 'LINE NUMBER'],
+                component: ['Component', 'COMPONENT', 'Equipment Type', 'TYPE', 'Part Subtype'],
+                description: ['Short Description', 'SHORT DESCRIPTION', 'Long Description (Family)', 'LONG DESCRIPTION (FAMILY)', 'Description', 'DESCRIPTION', 'Fluid Service', 'Process Fluid Identifier'],
+                qty: ['Qty', 'Quantity', 'QTY', 'Item Count', 'ITEM COUNT'],
+                size1: ['Size 1', 'SIZE 1', 'Size', 'SIZE', 'Nominal Size', 'Line Size (Inch)', 'LINE SIZE (INCH)'],
+                size2: ['Size 2', 'SIZE 2'],
+                length: ['Length', 'LENGTH', 'Pipe Length', 'PIPE LENGTH', 'Length (m)', 'LENGTH (M)'],
+                unit: ['Unit', 'UNIT', 'UOM', 'Satuan']
             };
-            localStorage.setItem(this.workflowStorageKey, JSON.stringify(payload));
+
+            // LineList is a process/line definition table. It has no BOM component
+            // quantity or physical pipe length, so do not invent them.
+            if (sheet === 'linelist' || sheet === 'line list') {
+                if (field === 'lineNo') return this.sanitizeLineNo(this.getText(row, ['Complete Line No.', 'LINE NO.', 'Line No.', 'LINE NUMBER', 'Line Number'], ''));
+                if (field === 'component') return 'Pipe';
+                if (field === 'description') return this.getText(row, ['Fluid Service', 'Process Fluid Identifier', 'Pipe.Spec'], '-');
+                if (field === 'qty') return 1;
+                if (field === 'size1') return this.getNumeric(row, ['Line Size (Inch)', 'LINE SIZE (INCH)']);
+                if (field === 'size2') return this.getNumeric(row, ['Size 2', 'SIZE 2']);
+                if (field === 'length') return this.getNumeric(row, ['Length', 'LENGTH', 'Pipe Length', 'PIPE LENGTH']);
+                if (field === 'unit') return 'LINE';
+            }
+
+            // Valve/MTO sheets use the actual component description and size.
+            if (sheet === 'valve') {
+                if (field === 'lineNo') return this.sanitizeLineNo(this.getText(row, ['Line Number Tag', 'LINE NUMBER TAG', 'Tag', 'TAG', 'Complete Line No.'], ''));
+                if (field === 'component') return 'Valve';
+                if (field === 'description') return this.getText(row, ['Long Description (Family)', 'Short Description', 'Long Description (Size)'], 'Valve');
+                if (field === 'qty') return this.getNumeric(row, ['Qty', 'Quantity', 'Item Count', 'ITEM COUNT']) || 1;
+                if (field === 'size1') return this.getNumeric(row, ['Size', 'SIZE', 'Nominal Diameter', 'Nominal Size']);
+                if (field === 'size2') return this.getNumeric(row, ['Size 2', 'SIZE 2']);
+                if (field === 'length') return this.getNumeric(row, ['Length', 'LENGTH', 'Engagement Length']);
+                if (field === 'unit') return this.getText(row, ['Unit', 'UNIT', 'UOM'], 'EA');
+            }
+
+            const keys = aliases[field] || [];
+            if (field === 'qty') return this.getNumeric(row, keys) || 1;
+            if (field === 'size1' || field === 'size2' || field === 'length') return this.getNumeric(row, keys);
+            if (field === 'unit') return this.getText(row, keys, 'EA');
+            if (field === 'lineNo') return this.sanitizeLineNo(this.getText(row, keys, ''));
+            return this.getText(row, keys, field === 'component' ? (row.__sheet || '-') : '-');
+        },
+
+        getAllMtoRows() {
+            const project = this.allProjectsData?.[this.activeProject] || {};
+            // Calculate BOM membaca seluruh sheet MTO yang memang berisi data.
+            // LineList hanya menjadi MASTER referensi untuk mencocokkan Line Number,
+            // sedangkan SP Items tidak ikut perhitungan. Support tetap dibaca karena
+            // masuk ke rekap PIPING SUPPORT. Hanya sheet kosong yang dilewati agar
+            // proses tetap ringan dan tidak menyebabkan lag.
+            const referenceOnly = new Set(['LineList', 'SP Items']);
+            const result = [];
+            Object.keys(project).forEach(sheet => {
+                if (sheet === 'meta' || referenceOnly.has(sheet)) return;
+                const rows = Array.isArray(project[sheet]) ? project[sheet] : [];
+                if (!rows.length) return;
+                rows.forEach((row, index) => {
+                    if (!row || typeof row !== 'object') return;
+                    const hasValue = Object.values(row).some(v => String(v ?? '').trim() !== '');
+                    if (!hasValue) return;
+                    result.push({ ...row, __sheet: sheet, __index: index });
+                });
+            });
+            return result;
+        },
+
+        calculateBOM(forceRecalculate = false) {
+            const rows = this.getAllMtoRows();
+            if (!rows.length) {
+                alert('Belum ada data MTO. Import atau input data MTO terlebih dahulu.');
+                return;
+            }
+
+            // Sesuai arahan mentor: item MTO hanya dihitung apabila Line Number
+            // ditemukan pada Master Line List. Jika tidak ada pasangan, item tidak masuk BOM.
+            const project = this.allProjectsData?.[this.activeProject] || {};
+            const lineRows = Array.isArray(project['LineList']) ? project['LineList'] : [];
+            const normalizeLine = (v) => String(v ?? '').trim().toUpperCase().replace(/['\"\s]/g, '');
+            const lineSet = new Set(lineRows.map(r => normalizeLine(this.getText(r, [
+                'Complete Line No.', 'LINE NO.', 'Line No.', 'LINE NUMBER', 'Line Number', 'Line Number Tag', 'LINE NUMBER TAG'
+            ], ''))).filter(Boolean));
+
+            const materialOf = (row) => this.getText(row, ['Material', 'MATERIAL', 'Material Code', 'MATERIAL CODE'], '');
+            const installationOf = (row) => this.getText(row, ['Installation', 'INSTALLATION', 'Location', 'LOCATION', 'Aboveground / Underground', 'ABOVEGROUND / UNDERGROUND'], '');
+
+            const classify = (component, description, sheet) => {
+                const t = `${component} ${description} ${sheet}`.toLowerCase();
+                if (/support/.test(t)) return 'SUPPORT';
+                if (/hydrostatic/.test(t)) return 'HYDROSTATIC';
+                if (/high pressure|air testing|flushing/.test(t)) return 'AIR_TESTING';
+                if (/radiographic|radiography/.test(t)) return 'RADIOGRAPHIC';
+                if (/pipe\b/.test(t)) return 'PIPE';
+                return 'COMPONENT';
+            };
+
+            // MASTER RUMUS BOM DARI MENTOR.
+            // Jangan menambah/mengganti rumus dengan asumsi lain.
+            const formulaFor = (component, description, sheet, size1, size2, qty, length) => {
+                const t = `${component} ${description} ${sheet}`.toLowerCase().replace(/[°]/g, '');
+                const BF = Number(size1) || 0;
+                const BG = Number(size2) || 0;
+                const R = Number(qty) || 0;
+                const pipeR = Number(length) || 0;
+                const x = (n) => Number(n || 0).toFixed(2);
+                let value = 0;
+                let formula = 'Belum ada rumus mentor';
+
+                // 1) Cap = BF2 × R2
+                if (/\bcap\b/.test(t)) {
+                    value = BF * R;
+                    formula = 'BF2 × R2';
+
+                // 2) Coupling = 2 × BF2 × R2
+                } else if (/\breducing\s+coupling\b/.test(t)) {
+                    value = (BF + BG) * R;
+                    formula = '(BF2 × R2) + (BG2 × R2)';
+                } else if (/\bcoupling\b/.test(t)) {
+                    value = 2 * BF * R;
+                    formula = '2 × BF2 × R2';
+
+                // 3) Reducers
+                } else if (/\b(concentric|eccentric)\s+reducer\b/.test(t)) {
+                    value = (BF + BG) * R;
+                    formula = '(BF2 × R2) + (BG2 × R2)';
+
+                // 4) Elbows
+                } else if (/\belbow\s*90\b|\b90\s*elbow\b/.test(t)) {
+                    value = 2 * BF * R;
+                    formula = '2 × BF2 × R2';
+                } else if (/\belbow\s*45\b|\b45\s*elbow\b/.test(t)) {
+                    value = 2 * BF * R;
+                    formula = '2 × BF2 × R2';
+
+                // 5) Flange dan opsi 300#/600# menggunakan rumus yang sama.
+                } else if (/\bflange\b/.test(t)) {
+                    value = BF * R;
+                    formula = 'BF2 × R2';
+
+                // 6) Pipe = ROUNDDOWN(R2/6,0) × BF2
+                } else if (/\bpipe\b/.test(t) && !/support|strainer|valve|elbow|tee|reducer|coupling|flange|olet|socket|weldolet|threadolet|pad/.test(t)) {
+                    value = Math.floor(pipeR / 6) * BF;
+                    formula = 'ROUNDDOWN(R2/6,0) × BF2';
+
+                // 7) Branch / olet
+                } else if (/\bsaddle\s+branch\b|\bsockolet\b/.test(t)) {
+                    value = (BG + 1.5 * BG) * R;
+                    formula = '(BG2 × R2) + (1.5 × BG2 × R2)';
+                } else if (/\bweldolet\b|\bthreadolet\b/.test(t)) {
+                    value = (BG + 1.5 * BG) * R;
+                    formula = '(BG2 × R2) + (1.5 × BG2 × R2)';
+
+                // 8) Tee
+                } else if (/\bequal\s+tee\b/.test(t)) {
+                    value = 3 * BF * R;
+                    formula = '3 × BF2 × R2';
+                } else if (/\breducing\s+tee\b|\bbarred\s+tee\b/.test(t)) {
+                    value = (2 * BF + BG) * R;
+                    formula = '(2 × BF2 × R2) + (BG2 × R2)';
+
+                // 9) Reinforcing Pad
+                } else if (/\b90\s*reinforcing\s+pad\b|\b45\s*reinforcing\s+pad\b/.test(t)) {
+                    value = (BG + (8 + BG)) * R;
+                    formula = '(BG2 × R2) + ((8+BG2) × R2)';
+
+                // 10) 45° Pipe to Pipe Full Encirclement
+                } else if (/\b45\s*pipe\s+to\s+pipe\s+full\s+encirclement\b/.test(t)) {
+                    value = (2 * BF + 2 * 1.5 * BF) * R;
+                    formula = '(2 × BF2 × R2) + (2 × 1.5 × BF2 × R2)';
+
+                // 11) Valve / strainer SW
+                } else if (/\bt\s*strainer\s*bw\b|\bball\s+valve\s*sw\b|\bcheck\s+valve\s*sw\b|\bgate\s+valve\s*sw\b|\bglobe\s+valve\s*sw\b/.test(t)) {
+                    value = 2 * BF * R;
+                    formula = '(BF2 × R2) + (BF2 × R2)';
+                }
+
+                return { value, formula };
+            };
+
+            const details = [];
+            let excludedNoLine = 0;
+            rows.forEach((row, i) => {
+                const sheetName = row.__sheet;
+                const qty = this.getBomField(row, 'qty', sheetName);
+                const size1 = this.getBomField(row, 'size1', sheetName);
+                const size2 = this.getBomField(row, 'size2', sheetName);
+                const length = this.getBomField(row, 'length', sheetName);
+                const unit = this.getBomField(row, 'unit', sheetName);
+                const component = this.getBomField(row, 'component', sheetName);
+                const description = this.getBomField(row, 'description', sheetName);
+                const lineNo = this.sanitizeLineNo(this.getBomField(row, 'lineNo', sheetName));
+                const lineKey = normalizeLine(lineNo);
+
+                // Aturan mentor: item MTO hanya dihitung jika Line Number MTO
+                // benar-benar ditemukan di Line List. Jika Line List kosong,
+                // tidak ada satu pun item MTO yang boleh masuk BOM.
+                if (sheetName !== 'LineList' && (!lineKey || lineKey === '-' || !lineSet.has(lineKey))) {
+                    excludedNoLine++;
+                    return;
+                }
+
+                const calc = formulaFor(component, description, sheetName, size1, size2, qty, length);
+                details.push({
+                    no: details.length + 1,
+                    lineNo,
+                    sheet: sheetName,
+                    component,
+                    description,
+                    material: materialOf(row),
+                    installation: installationOf(row),
+                    qty, size1, size2, length, unit,
+                    inchDia: calc.value,
+                    mentorFormula: calc.formula,
+                    category: classify(component, description, sheetName)
+                });
+            });
+
+            const totalQty = details.reduce((sum, r) => sum + (Number(r.qty) || 0), 0);
+            const pipeQty = details.filter(r => r.category === 'PIPE').reduce((sum, r) => sum + (Number(r.length) || 0), 0);
+            const totalInchDia = details.reduce((sum, r) => sum + (Number(r.inchDia) || 0), 0);
+            const totalJoint = details.filter(r => r.category === 'COMPONENT').reduce((sum, r) => sum + (Number(r.qty) || 0), 0);
+
+            const bom = {
+                revision: project.meta?.version || 0,
+                sourceSheet: 'ALL_MTO',
+                matchingRule: 'MTO_LINE_LIST_EXACT_MATCH_V2',
+                calculatedAt: new Date().toLocaleString('id-ID'),
+                totalMtoItems: rows.length,
+                totalItems: details.length,
+                totalQty,
+                pipeQty,
+                totalInchDia,
+                totalJoint,
+                excludedNoLine,
+                details
+            };
+            project.meta.bom = bom;
+            project.meta.workflowStatus = 'BOM_CALCULATED';
+            project.meta.revisionNotes = '';
+            this.saveProjectMetaOnly();
+            this.showBomModal = true;
+        },
+
+        submitBOMToEstimator() {
+            if (this.loginForm.role !== 'Piping Engineer') return alert('Hanya Piping Engineer yang dapat mengirim BOM.');
+            const bom = this.allProjectsData[this.activeProject]?.meta?.bom;
+            if (!bom?.details?.length) return alert('Hitung BOM terlebih dahulu.');
+            if (bom.matchingRule !== 'MTO_LINE_LIST_EXACT_MATCH_V2') {
+                return alert('BOM belum menggunakan aturan pencocokan MTO dengan Line List. Silakan Hitung Ulang BOM terlebih dahulu.');
+            }
+            this.setWorkflowStatus('SUBMITTED_TO_ESTIMATOR', 'BOM sudah dikirim oleh Piping Engineer. Menunggu Estimator melakukan kalkulasi BOQ.');
+            this.showBomModal = false;
+            alert('BOM / BQ berhasil dikirim ke Estimator.');
+        },
+
+        generateBOQ() {
+            if (this.loginForm.role !== 'Estimator Proposal') {
+                alert('Kalkulasi Biaya BOQ hanya dapat dilakukan oleh Estimator Proposal.');
+                return;
+            }
+
+            const meta = this.allProjectsData?.[this.activeProject];
+
+            // BOQ final tidak dihitung ulang setelah Lead approval.
+            if (this.workflowStatus === 'APPROVED') {
+                const finalApproval = this.latestApproval || {
+                    status: 'APPROVED',
+                    notes: 'Laporan final telah disetujui oleh Lead Estimator.'
+                };
+                this.printFinalReportPDF(finalApproval);
+                return;
+            }
+
+            if (this.workflowStatus !== 'SUBMITTED_TO_ESTIMATOR' && this.workflowStatus !== 'BOQ_CALCULATED') {
+                alert(`BOQ belum dapat dihitung. Status saat ini: ${this.workflowStatusText}`);
+                return;
+            }
+
+            // Pastikan BOM yang dipakai Estimator benar-benar mengikuti aturan
+            // MTO Line Number ↔ Line List. BOM lama/stale dari versi sebelumnya
+            // tidak boleh membuat tombol BOQ macet.
+            let currentBom = meta.meta?.bom;
+            const bomNeedsRebuild = !currentBom?.details?.length ||
+                currentBom.matchingRule !== 'MTO_LINE_LIST_EXACT_MATCH_V2';
+
+            if (bomNeedsRebuild) {
+                const keepStatus = this.workflowStatus;
+                this.calculateBOM(true);
+                currentBom = meta.meta?.bom;
+
+                // calculateBOM membuka modal dan mengubah status menjadi BOM_CALCULATED.
+                // Kembalikan status agar Estimator tetap berada pada tahap yang benar.
+                if (keepStatus === 'SUBMITTED_TO_ESTIMATOR' && currentBom?.details) {
+                    this.setWorkflowStatus('SUBMITTED_TO_ESTIMATOR',
+                        'BOM sudah dikirim oleh Piping Engineer. Menunggu Estimator melakukan kalkulasi BOQ.');
+                    this.showBomModal = false;
+                }
+            }
+
+            if (!currentBom?.details?.length) {
+                alert('Tidak ada item BOM yang match antara MTO dan Line List. Tidak ada BOQ yang dapat dihitung.');
+                return;
+            }
+
+            const previous = meta.boq?.items || [];
+            const previousGroups = meta.boq?.priceGroups || [];
+            const priceMap = new Map(previous.map(x => [x.key, Number(x.unitPrice) || 0]));
+            const previousGroupPriceMap = new Map(previousGroups.map(g => [g.key, Number(g.unitPrice) || 0]));
+
+            const items = currentBom.details.map((r, i) => ({
+                ...r,
+                key: `${r.sheet}::${r.no}`,
+                unitPrice: priceMap.get(`${r.sheet}::${r.no}`) || 0,
+                totalPrice: (priceMap.get(`${r.sheet}::${r.no}`) || 0) * (Number(r.qty) || 0)
+            }));
+
+            meta.boq = {
+                revision: meta.version || 0,
+                calculatedAt: new Date().toLocaleString('id-ID'),
+                priceLevel: this.activePriceLevel,
+                currency: this.boqCurrency,
+                items,
+                priceGroups: [],
+                directCost: 0,
+                indirectCost: Number(meta.boq?.indirectCost) || 0,
+                totalCost: 0
+            };
+
+            // Estimator tidak perlu memasukkan harga 641 kali.
+            // Kelompok harga dibuat dari karakteristik item yang menentukan harga:
+            // Sheet + Component + Description + Size 1 + Size 2 + Unit.
+            this.rebuildBOQPriceGroups(previousGroupPriceMap);
+            this.recalculateBOQTotals();
+            this.setWorkflowStatus('BOQ_CALCULATED', 'BOQ sudah dihitung oleh Estimator.');
+            this.showBoqModal = true;
+        },
+
+        getBOQGroupKey(row) {
+            const norm = (value) => String(value ?? '').trim().toLowerCase().replace(/\\s+/g, ' ');
+            return [
+                norm(row.sheet),
+                norm(row.component),
+                norm(row.description),
+                norm(row.size1),
+                norm(row.size2),
+                norm(row.unit)
+            ].join('||');
+        },
+
+        rebuildBOQPriceGroups(previousPriceMap = new Map()) {
+            const meta = this.allProjectsData?.[this.activeProject]?.meta;
+            if (!meta?.boq?.items) return;
+
+            const groups = new Map();
+            meta.boq.items.forEach((row) => {
+                const key = this.getBOQGroupKey(row);
+                if (!groups.has(key)) {
+                    groups.set(key, {
+                        key,
+                        sheet: row.sheet || '-',
+                        component: row.component || '-',
+                        description: row.description || '-',
+                        size1: row.size1 ?? null,
+                        size2: row.size2 ?? null,
+                        unit: row.unit || '-',
+                        qty: 0,
+                        itemCount: 0,
+                        unitPrice: Number(previousPriceMap.get(key) ?? 0) || 0
+                    });
+                }
+                const group = groups.get(key);
+                group.qty += Number(row.qty) || 0;
+                group.itemCount += 1;
+            });
+
+            meta.boq.priceGroups = Array.from(groups.values()).sort((a, b) =>
+                `${a.sheet}${a.component}${a.description}${a.size1}`.localeCompare(
+                    `${b.sheet}${b.component}${b.description}${b.size1}`
+                )
+            );
+
+            // Terapkan harga group ke seluruh detail BOM.
+            const groupPriceMap = new Map(meta.boq.priceGroups.map(g => [g.key, Number(g.unitPrice) || 0]));
+            meta.boq.items.forEach(row => {
+                const price = groupPriceMap.get(this.getBOQGroupKey(row)) || 0;
+                row.unitPrice = price;
+                row.totalPrice = price * (Number(row.qty) || 0);
+            });
+        },
+
+        updateBOQPriceGroup(index, value) {
+            const meta = this.allProjectsData?.[this.activeProject]?.meta;
+            const group = meta?.boq?.priceGroups?.[index];
+            if (!group) return;
+
+            const n = Number(String(value).replace(/,/g, '')) || 0;
+            group.unitPrice = n;
+
+            const groupKey = group.key;
+            meta.boq.items.forEach(row => {
+                if (this.getBOQGroupKey(row) === groupKey) {
+                    row.unitPrice = n;
+                    row.totalPrice = n * (Number(row.qty) || 0);
+                }
+            });
+
+            this.recalculateBOQTotals();
+        },
+
+        recalculateBOQTotals() {
+            const meta = this.allProjectsData?.[this.activeProject]?.meta;
+            if (!meta?.boq?.items) return;
+
+            meta.boq.directCost = meta.boq.items.reduce(
+                (sum, row) => sum + (Number(row.totalPrice) || 0), 0
+            );
+            meta.boq.totalCost =
+                meta.boq.directCost + (Number(meta.boq.indirectCost) || 0);
+
+            this.saveStorage();
+        },
+
+        getBOQGroupPriceCoverage() {
+            const groups = this.allProjectsData?.[this.activeProject]?.meta?.boq?.priceGroups || [];
+            const priced = groups.filter(g => Number(g.unitPrice) > 0).length;
+            return {
+                total: groups.length,
+                priced,
+                unpriced: groups.length - priced
+            };
+        },
+
+        updateBOQPrice(index, value) {
+            const meta = this.allProjectsData?.[this.activeProject]?.meta;
+            if (!meta?.boq?.items?.[index]) return;
+            const n = Number(String(value).replace(/,/g, '')) || 0;
+            meta.boq.items[index].unitPrice = n;
+            meta.boq.items[index].totalPrice = n * (Number(meta.boq.items[index].qty) || 0);
+            meta.boq.directCost = meta.boq.items.reduce((s, x) => s + (Number(x.totalPrice) || 0), 0);
+            meta.boq.totalCost = meta.boq.directCost + (Number(meta.boq.indirectCost) || 0);
+            this.saveStorage();
+        },
+
+        setIndirectCost(value) {
+            const meta = this.allProjectsData?.[this.activeProject]?.meta;
+            if (!meta?.boq) return;
+            meta.boq.indirectCost = Number(String(value).replace(/,/g, '')) || 0;
+            meta.boq.totalCost = (Number(meta.boq.directCost) || 0) + meta.boq.indirectCost;
+            this.saveStorage();
+        },
+
+        submitBOQToLead() {
+            if (this.loginForm.role !== 'Estimator Proposal') return alert('Hanya Estimator Proposal yang dapat mengirim BOQ.');
+            const meta = this.allProjectsData?.[this.activeProject]?.meta;
+            if (!meta?.boq?.items?.length) return alert('Hitung BOQ terlebih dahulu.');
+            const coverage = this.getBOQGroupPriceCoverage();
+            if (coverage.unpriced > 0) {
+                return alert(`Masih ada ${coverage.unpriced} kelompok harga yang belum diisi. Lengkapi Unit Price terlebih dahulu sebelum mengirim BOQ ke Lead.`);
+            }
+            this.setWorkflowStatus('SUBMITTED_TO_LEAD', 'BOQ sudah dikirim oleh Estimator. Menunggu Lead Estimator melakukan review.');
+            this.showBoqModal = false;
+            alert('BOQ berhasil dikirim ke Lead Estimator untuk review.');
+        },
+
+        approveData() {
+            if (this.loginForm.role !== 'Lead Estimator') {
+                alert('Approval & Review Laporan hanya dapat dilakukan oleh Lead Estimator.');
+                return;
+            }
+
+            // Setelah approval, tombol review membuka laporan final.
+            if (this.workflowStatus === 'APPROVED') {
+                const finalApproval = this.latestApproval || {
+                    status: 'APPROVED',
+                    notes: 'Laporan final telah disetujui oleh Lead Estimator.'
+                };
+                this.printFinalReportPDF(finalApproval);
+                return;
+            }
+
+            if (this.workflowStatus !== 'SUBMITTED_TO_LEAD') {
+                alert(`Belum ada BOQ yang menunggu review. Status saat ini: ${this.workflowStatusText}`);
+                return;
+            }
+
+            const meta = this.allProjectsData?.[this.activeProject]?.meta;
+            const reviewBoq = meta?.boq;
+            if (!reviewBoq?.items?.length) {
+                alert('BOQ belum tersedia. Estimator harus menghitung dan mengirim BOQ terlebih dahulu.');
+                return;
+            }
+            if (meta?.bom?.matchingRule !== 'MTO_LINE_LIST_EXACT_MATCH_V2') {
+                alert('BOQ belum menggunakan pencocokan Line Number MTO dengan Line List. Engineer harus menghitung ulang BOM terlebih dahulu.');
+                return;
+            }
+
+            this.approvalNote = '';
+            this.showApproveModal = true;
+        },
+
+        getReviewNote() {
+            const el = document.getElementById('reviewer-notes-textarea');
+            return String(el?.value || this.approvalNote || '').trim();
+        },
+
+        recordApproval(status, notes = '') {
+            const meta = this.allProjectsData[this.activeProject].meta;
+            const item = {
+                id: Date.now(),
+                projectId: this.activeProject,
+                sheet: this.activeSheet,
+                revision: meta.version || 0,
+                status,
+                reviewer: this.loginForm.role || 'Lead Estimator',
+                notes,
+                timestamp: new Date().toLocaleString('id-ID'),
+                title: status === 'APPROVED' ? 'BOQ / Laporan Disetujui' : 'Revisi BOQ / Laporan'
+            };
+            const historyKey = 'tripatra_approval_history_v2';
+            let history = [];
+            try { history = JSON.parse(localStorage.getItem(historyKey) || '[]'); } catch (_) {}
+            history.push(item);
+            localStorage.setItem(historyKey, JSON.stringify(history));
+            this.approvalHistory = history;
+            return item;
+        },
+
+        confirmApprove() {
+            if (this.loginForm.role !== 'Lead Estimator') return;
+            const meta = this.allProjectsData[this.activeProject].meta;
+            const notes = this.getReviewNote() || 'Laporan disetujui oleh Lead Estimator.';
+            meta.isApproved = true;
+            meta.approvedAt = new Date().toLocaleString('id-ID');
+            meta.version = Number(meta.version || 0);
+            this.setWorkflowStatus('APPROVED', notes);
+            this.recordApproval('APPROVED', notes);
+            this.showApproveModal = false;
+            alert('Laporan berhasil APPROVED. Workflow selesai dan menjadi laporan final.');
+        },
+
+        handleMintaRevisi() {
+            if (this.loginForm.role !== 'Lead Estimator') return;
+            const meta = this.allProjectsData[this.activeProject].meta;
+            const notes = this.getReviewNote();
+            if (!notes) return alert('Catatan revisi wajib diisi agar Engineer mengetahui bagian yang harus diperbaiki.');
+            meta.isApproved = false;
+            meta.version = Number(meta.version || 0) + 1;
+            this.setWorkflowStatus('REVISION_REQUIRED', notes);
+            this.recordApproval('REVISION_REQUIRED', notes);
+            this.showApproveModal = false;
+            alert(`Revisi diminta. Project kembali ke Engineer sebagai Rev ${meta.version}.`);
+        },
+
+        startNewRevision() {
+            if (this.loginForm.role !== 'Piping Engineer') {
+                alert('Revisi baru hanya dapat dimulai oleh Piping Engineer.');
+                return;
+            }
+
+            const project = this.allProjectsData?.[this.activeProject];
+            if (!project) return;
+
+            const meta = project.meta || {};
+            const nextRevision = Number(meta.version || 0) + 1;
+
+            if (!confirm(`Mulai Rev ${nextRevision} dari laporan final? Data MTO tetap dipertahankan, tetapi BOM/BOQ lama akan menjadi hasil revisi sebelumnya.`)) {
+                return;
+            }
+
+            meta.version = nextRevision;
+            meta.isApproved = false;
+            meta.approvedAt = null;
+            meta.bom = null;
+            meta.boq = null;
+            meta.workflowStatus = 'DRAFT';
+            meta.revisionNotes = 'Revisi baru dimulai oleh Piping Engineer.';
+            meta.workflowUpdatedAt = new Date().toLocaleString('id-ID');
+
+            this.saveProjectMetaOnly();
+            this.showBomModal = false;
+            this.showBoqModal = false;
+            this.showApproveModal = false;
+
+            alert(`Rev ${nextRevision} siap dikerjakan. Alur dimulai kembali dari Engineer.`);
+        },
+
+        rejectData() {
+            if (this.loginForm.role !== 'Lead Estimator') return;
+            const notes = this.getReviewNote() || 'Laporan ditolak dan perlu diperbaiki oleh Engineer.';
+            const meta = this.allProjectsData[this.activeProject].meta;
+            meta.isApproved = false;
+            meta.version = Number(meta.version || 0) + 1;
+            this.setWorkflowStatus('REVISION_REQUIRED', notes);
+            this.recordApproval('REJECTED', notes);
+            this.showApproveModal = false;
+            alert(`Laporan ditolak. Project dikembalikan ke Engineer sebagai Rev ${meta.version}.`);
+        },
+
+        loadApprovalHistory() {
+            try { this.approvalHistory = JSON.parse(localStorage.getItem('tripatra_approval_history_v2') || '[]'); }
+            catch (_) { this.approvalHistory = []; }
         },
 
         get projectApprovalHistory() {
-            return Array.isArray(this.approvalHistory) ? this.approvalHistory : [];
+            return (this.approvalHistory || []).filter(x => x.projectId === this.activeProject);
         },
 
         get latestApproval() {
-            const h = this.projectApprovalHistory;
-            return h.length ? h[h.length - 1] : null;
+            const arr = this.projectApprovalHistory;
+            return arr.length ? arr[arr.length - 1] : null;
         },
 
         get activeTaskCount() {
-            const r = this.loginForm.role;
-            if (r === 'Piping Engineer') return ['DRAFT', 'REVISION_REQUESTED_TO_ENGINEER'].includes(this.workflowStatus) ? 1 : 0;
-            if (r === 'Estimator Proposal') return ['SUBMITTED_TO_ESTIMATOR', 'REVISION_REQUESTED_TO_ESTIMATOR'].includes(this.workflowStatus) ? 1 : 0;
-            if (r === 'Lead Estimator') return this.workflowStatus === 'SUBMITTED_TO_LEAD' ? 1 : 0;
+            const s = this.workflowStatus;
+            if (this.loginForm.role === 'Piping Engineer') return ['DRAFT', 'REVISION_REQUIRED'].includes(s) ? 1 : 0;
+            if (this.loginForm.role === 'Estimator Proposal') return s === 'SUBMITTED_TO_ESTIMATOR' ? 1 : 0;
+            if (this.loginForm.role === 'Lead Estimator') return s === 'SUBMITTED_TO_LEAD' ? 1 : 0;
             return 0;
         },
 
         getApprovalStatusText(status) {
-            const map = {
-                DRAFT: 'Draft',
-                SUBMITTED_TO_ESTIMATOR: 'Menunggu Estimator',
-                SUBMITTED_TO_LEAD: 'Menunggu Review Lead',
-                APPROVED: 'Approved',
-                REJECTED: 'Rejected',
-                REVISION_REQUESTED: 'Minta Revisi',
-                REVISION_REQUESTED_TO_ESTIMATOR: 'Revisi BOQ untuk Estimator',
-                REVISION_REQUESTED_TO_ENGINEER: 'Revisi MTO untuk Engineer'
-            };
+            const map = { APPROVED: 'Approved', REVISION_REQUIRED: 'Minta Revisi', REJECTED: 'Rejected' };
             return map[status] || status || 'Menunggu';
         },
 
         getApprovalStatusClass(status) {
             if (status === 'APPROVED') return 'bg-emerald-100 text-emerald-700';
-            if (status === 'REJECTED') return 'bg-rose-100 text-rose-700';
-            if (status === 'REVISION_REQUESTED') return 'bg-amber-100 text-amber-700';
-            if (status === 'SUBMITTED_TO_LEAD') return 'bg-sky-100 text-sky-700';
-            return 'bg-slate-100 text-slate-700';
+            if (status === 'REVISION_REQUIRED') return 'bg-amber-100 text-amber-700';
+            return 'bg-rose-100 text-rose-700';
         },
 
-        createWorkflowHistory(status, title, notes = '') {
-            const item = {
-                id: Date.now(),
-                title,
-                projectId: this.activeProject,
-                sheet: this.activeSheet,
-                revision: this.allProjectsData?.[this.activeProject]?.meta?.version || 0,
-                reviewer: this.loginForm.role,
-                status,
-                notes,
-                timestamp: new Date().toLocaleString('id-ID')
+        openActiveTasks() { this.taskView = 'active'; },
+        openApprovalHistory() { this.taskView = 'history'; },
+        openTaskMTOValve() { this.currentDashboardTab = 'workspace'; this.activeSheet = 'Valve'; this.currentPage = 1; },
+        openApprovalDetail(item) { this.printFinalReportPDF(item); },
+
+        printFinalReportPDF(approvalItem = null) {
+            const meta = this.allProjectsData?.[this.activeProject]?.meta || {};
+            const bom = meta.bom || { details: [] };
+            const boq = meta.boq || { items: [], directCost: 0, indirectCost: 0, totalCost: 0 };
+            const esc = (v) => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+            const num = (v) => Number(v || 0).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+            const money = (v) => new Intl.NumberFormat('en-US', {style:'currency', currency: boq.currency === 'IDR' ? 'IDR' : 'USD', maximumFractionDigits:2}).format(Number(v)||0);
+
+            const rows = Array.isArray(bom.details) ? bom.details : [];
+            const materialGroups = ['CS PIPE','SS PIPE','LTCS PIPE','LOW ALLOY PIPE','HIGH ALLOY PIPE','HDPE PIPE','RTRP PIPE'];
+            const materialValue = (r) => `${r.material || ''} ${r.description || ''}`.toUpperCase();
+            const pipeRows = rows.filter(r => r.category === 'PIPE' || /\bPIPE\b/i.test(`${r.component} ${r.description}`));
+            const pipeAmount = (label) => pipeRows.filter(r => {
+                const t = materialValue(r);
+                if (label === 'CS PIPE') return /\bCS\b|CARBON STEEL/.test(t) && !/LTCS|SS|STAINLESS/.test(t);
+                if (label === 'SS PIPE') return /\bSS\b|STAINLESS/.test(t);
+                if (label === 'LTCS PIPE') return /LTCS/.test(t);
+                if (label === 'LOW ALLOY PIPE') return /LOW ALLOY/.test(t);
+                if (label === 'HIGH ALLOY PIPE') return /HIGH ALLOY/.test(t);
+                if (label === 'HDPE PIPE') return /HDPE/.test(t);
+                if (label === 'RTRP PIPE') return /RTRP/.test(t);
+                return false;
+            }).reduce((s,r) => s + (Number(r.inchDia)||0), 0);
+
+            const supportQty = rows.filter(r => r.category === 'SUPPORT' || /support/i.test(`${r.sheet} ${r.component} ${r.description}`)).reduce((s,r)=>s+(Number(r.qty)||0),0);
+            const testRows = rows.filter(r => ['HYDROSTATIC','AIR_TESTING','RADIOGRAPHIC'].includes(r.category));
+            const testAmount = cat => testRows.filter(r=>r.category===cat).reduce((s,r)=>s+(Number(r.inchDia)||Number(r.qty)||0),0);
+            const itemRow = (no, desc, qty, unit='', cls='') => `<tr class="${cls}"><td class="no">${no}</td><td>${esc(desc)}</td><td class="qty">${typeof qty === 'number' ? num(qty) : esc(qty)}</td><td>${esc(unit)}</td><td></td></tr>`;
+            const pipeSection = (title, no) => {
+                let h = itemRow(no, title, '', '', 'section');
+                materialGroups.forEach(m => { h += itemRow('', '- ' + m, pipeAmount(m), 'DIA.INCH'); });
+                return h;
             };
-            this.approvalHistory.push(item);
-            this.saveWorkflowState();
-            return item;
-        },
 
-        generateBOQ() {
-            if (this.loginForm.role !== 'Estimator Proposal') {
-                alert('Fitur Kalkulasi Biaya BOQ hanya dapat dijalankan oleh Estimator.');
-                return;
-            }
-            let groups = Array.isArray(this.qtoRows) ? this.qtoRows : [];
-            // Kompatibilitas dengan workflow lama: jika snapshot QTO belum ada tetapi status sudah dikirim,
-            // ambil data sheet aktif sekali lalu simpan sebagai snapshot.
-            if (!groups.length && this.workflowStatus === 'SUBMITTED_TO_ESTIMATOR') {
-                groups = this.getBomGroups();
-                if (groups.length) {
-                    this.qtoRows = groups.map(g => ({ ...g }));
-                    this.qtoSourceSheet = this.activeSheet;
-                    this.qtoSubmittedAt = new Date().toISOString();
-                    this.saveWorkflowState();
-                }
-            }
-            if (!groups.length) {
-                alert('Belum ada Quantity Take-Off dari Engineer. Engineer harus mengirim MTO terlebih dahulu.');
-                return;
-            }
-            this.costRows = groups.map((g, i) => ({
-                no: i + 1,
-                description: g.description,
-                material: g.material,
-                size: g.size,
-                spec: g.spec,
-                quantity: g.quantity,
-                unit: 'EA',
-                unitPrice: Number((this.costRows[i]?.unitPrice) || 0),
-                total: Number((this.costRows[i]?.unitPrice) || 0) * g.quantity
-            }));
-            this.showCostBoqModal = true;
-        },
+            const detailRows = rows.map((r,i) => `<tr><td>${i+1}</td><td>${esc(r.lineNo || '-')}</td><td>${esc(r.component || '-')}</td><td>${esc(r.description || '-')}</td><td class="qty">${num(r.inchDia)}</td><td>${esc(r.unit || 'DIA.INCH')}</td></tr>`).join('');
+            const approval = approvalItem || this.latestApproval || {};
+            const approved = approval.status === 'APPROVED' || meta.isApproved;
+            const status = approved ? 'APPROVED' : this.getApprovalStatusText(approval.status || meta.workflowStatus);
 
-        updateCostRow(index, value) {
-            const row = this.costRows[index];
-            if (!row) return;
-            row.unitPrice = Math.max(0, Number(value) || 0);
-            row.total = row.unitPrice * (Number(row.quantity) || 0);
-            this.saveWorkflowState();
-        },
+            const reportRows = pipeSection('1  INSTALLATION PIPE', '1') +
+                itemRow('2', 'PIPING SUPPORT', supportQty, 'TON') +
+                itemRow('3', 'TESTING', '', '', 'section') +
+                itemRow('', 'Hydrostatic testing and cleaning', testAmount('HYDROSTATIC'), 'LM', testAmount('HYDROSTATIC') ? '' : 'zero') +
+                itemRow('', 'High Pressure air testing (flushing) and cleaning', testAmount('AIR_TESTING'), 'LM', testAmount('AIR_TESTING') ? '' : 'zero') +
+                itemRow('', 'Radiographic Testing', testAmount('RADIOGRAPHIC'), 'DIA.INCH', testAmount('RADIOGRAPHIC') ? '' : 'zero');
 
-        get costGrandTotal() {
-            return (this.costRows || []).reduce((sum, r) => sum + (Number(r.total) || 0), 0);
-        },
+            const html = `<!doctype html><html><head><meta charset="utf-8"><title>Final Total BOQ KPI Format - ${esc(this.activeProject)}</title>
+            <style>
+            *{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:0;padding:14mm 12mm;font-size:10px}h1{font-size:15px;text-align:center;margin:0 0 2px;font-weight:700}h2{font-size:12px;text-align:center;margin:0 0 16px;font-weight:700}.meta{display:grid;grid-template-columns:130px 1fr 130px 1fr;margin-bottom:10px}.meta div{border:1px solid #333;padding:5px}.meta .label{font-weight:700;background:#f1f1f1}.status{text-align:center;font-weight:700;margin:7px 0 12px}.main{width:100%;border-collapse:collapse}.main th,.main td{border:1px solid #222;padding:5px 6px;vertical-align:middle}.main th{background:#bdbdbd;text-align:center;font-weight:700}.main .no{width:45px;text-align:center}.main .qty{width:110px;text-align:right;font-variant-numeric:tabular-nums}.main .section td{font-weight:700}.main .zero td{color:#333}.summary{margin-top:16px;width:100%;border-collapse:collapse}.summary th,.summary td{border:1px solid #222;padding:5px}.summary th{background:#d9ead3}.detail{page-break-before:always}.detail table{width:100%;border-collapse:collapse;font-size:8px}.detail th,.detail td{border:1px solid #777;padding:4px}.detail th{background:#e5e7eb}.right{text-align:right}.footer{margin-top:18px;display:grid;grid-template-columns:1fr 1fr;gap:25px}.sign{border-top:1px solid #555;padding-top:6px;text-align:center}.note{margin-top:10px;border:1px solid #999;padding:7px}.muted{color:#666}@page{size:A4 portrait;margin:8mm}@media print{body{padding:0}.no-print{display:none}}
+            </style></head><body>
+            <h1>PIPING WORK MATERIAL TAKE OFF (MTO) FOR UTILITY &amp; OFFSITE FACILITIES</h1>
+            <h2>${esc(meta.projectName || this.activeProject)}</h2>
+            <div class="meta"><div class="label">CONSULTANT NAME</div><div>TTS Consortium</div><div class="label">DATE</div><div>${esc(new Date().toLocaleDateString('en-GB'))}</div>
+            <div class="label">CLIENT</div><div>PT. KILANG PERTAMINA INTERNASIONAL</div><div class="label">REVISION</div><div>Rev ${esc(meta.version || 0)}</div>
+            <div class="label">SITE</div><div>${esc(meta.projectName || this.activeProject)}</div><div class="label">MADE / CHECKED BY</div><div>${approved ? 'LEAD ESTIMATOR' : '-'}</div></div>
+            <div class="status">STATUS: ${esc(status)}</div>
+            <table class="main"><thead><tr><th>NO</th><th>DESCRIPTION</th><th>QTY</th><th>UNIT</th><th>REMARKS</th></tr></thead><tbody>${reportRows}</tbody></table>
+            <table class="summary"><tr><th>BOQ SUMMARY</th><th class="right">VALUE</th></tr><tr><td>Direct Cost</td><td class="right">${money(boq.directCost)}</td></tr><tr><td>Indirect Cost</td><td class="right">${money(boq.indirectCost)}</td></tr><tr><th>Total BOQ</th><th class="right">${money(boq.totalCost)}</th></tr></table>
+            <div class="note"><b>Approval Note:</b> ${esc(approval.notes || meta.revisionNotes || '-')}</div>
+            <div class="footer"><div class="sign">Prepared by<br><b>Estimator Proposal</b></div><div class="sign">Reviewed &amp; Approved by<br><b>Lead Estimator</b></div></div>
+            <div class="detail"><h2>DETAIL PERHITUNGAN BOM / BOQ</h2><table><thead><tr><th>No</th><th>Line No.</th><th>Component</th><th>Description</th><th>Inch-Dia</th><th>Unit</th></tr></thead><tbody>${detailRows}</tbody></table></div>
+            </body></html>`;
 
-        submitCostToLead() {
-            if (this.loginForm.role !== 'Estimator Proposal') return;
-            if (!this.costRows.length) return alert('Belum ada data BOQ yang dihitung.');
-            this.workflowStatus = 'SUBMITTED_TO_LEAD';
-            this.createWorkflowHistory('SUBMITTED_TO_LEAD', 'BOQ & Quantity Take-Off dikirim untuk Review Lead', this.costNotes || 'Estimator mengirim hasil kalkulasi BOQ untuk direview Lead.');
-            this.showCostBoqModal = false;
-            this.taskView = 'active';
-            alert('Kalkulasi BOQ berhasil dikirim ke Lead Estimator untuk review.');
-        },
-
-        get leadReviewRows() {
-            // Gunakan hasil costing Estimator sebagai sumber utama.
-            // Quantity/spec tetap berasal dari snapshot QTO Engineer.
-            return Array.isArray(this.costRows) ? this.costRows : [];
-        },
-
-        get leadReviewTotalQuantity() {
-            return this.leadReviewRows.reduce((sum, row) => sum + (Number(row.quantity) || 0), 0);
-        },
-
-        get leadReviewTotalCost() {
-            return this.leadReviewRows.reduce((sum, row) => sum + (Number(row.total) || 0), 0);
-        },
-
-        get leadReviewCurrencyLabel() {
-            return this.boqCurrency === 'IDR' ? 'Rp' : (this.boqCurrency || 'USD');
-        },
-
-        formatMoney(value) {
-            const n = Number(value) || 0;
-            return n.toLocaleString('id-ID');
-        },
-
-        approveData() {
-            if (this.loginForm.role !== 'Lead Estimator') {
-                alert('Approval & Review hanya dapat dijalankan oleh Lead Estimator.');
-                return;
-            }
-            if (this.workflowStatus !== 'SUBMITTED_TO_LEAD') {
-                alert('Belum ada BOQ/laporan dari Estimator yang menunggu review.');
-                this.currentDashboardTab = 'tasks';
-                return;
-            }
-            if (!Array.isArray(this.costRows) || this.costRows.length === 0) {
-                alert('Data BOQ dari Estimator belum tersedia.');
-                return;
-            }
-            this.loadWorkflowState();
-            this.approvalNote = '';
-            this.showApproveModal = true;
-        },
-
-        confirmApprove() {
-            if (this.loginForm.role !== 'Lead Estimator') return;
-            this.workflowStatus = 'APPROVED';
-            const note = this.approvalNote || document.getElementById('reviewer-notes-textarea')?.value || 'Disetujui oleh Lead Estimator.';
-            this.createWorkflowHistory(
-                'APPROVED',
-                'BOQ & Laporan Disetujui',
-                `${note} Total BOQ: ${this.formatMoney(this.leadReviewTotalCost)}. Quantity: ${this.leadReviewRows.map(r => `${r.quantity ?? 0} ${r.unit || 'EA'}`).join(', ')}.`
-            );
-            this.saveWorkflowState();
-            this.showApproveModal = false;
-            this.taskView = 'history';
-            alert('Laporan berhasil di-approve. Status project sekarang APPROVED.');
-        },
-
-        rejectData() {
-            if (this.loginForm.role !== 'Lead Estimator') return;
-            this.workflowStatus = 'REJECTED';
-            const note = this.approvalNote || document.getElementById('reviewer-notes-textarea')?.value || 'Laporan ditolak oleh Lead Estimator.';
-            this.createWorkflowHistory('REJECTED', 'BOQ & Laporan Ditolak', note);
-            this.saveWorkflowState();
-            this.showApproveModal = false;
-            this.taskView = 'history';
-            alert('Laporan ditolak dan tercatat pada riwayat.');
-        },
-
-        handleMintaRevisi() {
-            if (this.loginForm.role !== 'Lead Estimator') return;
-            this.workflowStatus = 'REVISION_REQUESTED_TO_ESTIMATOR';
-            const note = this.approvalNote || document.getElementById('reviewer-notes-textarea')?.value || 'Mohon revisi data sebelum diajukan kembali.';
-            this.createWorkflowHistory('REVISION_REQUESTED_TO_ESTIMATOR', 'Lead Meminta Revisi BOQ', note);
-            this.saveWorkflowState();
-            this.showApproveModal = false;
-            this.taskView = 'history';
-            alert('Permintaan revisi BOQ berhasil dikirim kembali ke Estimator.');
-        },
-
-        get finalReportAvailable() {
-            return this.workflowStatus === 'APPROVED' && Array.isArray(this.costRows) && this.costRows.length > 0;
-        },
-
-        openFinalReport() {
-            if (!this.finalReportAvailable) {
-                alert('Laporan final belum tersedia. BOQ harus disetujui Lead terlebih dahulu.');
-                return;
-            }
-            this.loadWorkflowState();
-            this.showFinalReportModal = true;
-        },
-
-        get finalReportTotal() {
-            return (this.costRows || []).reduce((sum, row) => sum + (Number(row.total) || 0), 0);
-        },
-
-        get finalReportApprovedBy() {
-            const approved = [...(this.projectApprovalHistory || [])].reverse().find(item => item.status === 'APPROVED');
-            return approved?.reviewer || 'Lead Estimator';
-        },
-
-        get finalReportApprovedAt() {
-            const approved = [...(this.projectApprovalHistory || [])].reverse().find(item => item.status === 'APPROVED');
-            return approved?.timestamp || '-';
-        },
-
-        exportFinalReport() {
-            if (!this.finalReportAvailable) {
-                alert('Laporan final belum tersedia.');
-                return;
-            }
-
-            const escapeHtml = (v) => String(v ?? '').replace(/[&<>"]/g, ch => ({
-                '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'
-            }[ch]));
-
-            const qtoMap = new Map((this.qtoRows || []).map(r => [
-                [r.description, r.material, r.size, r.spec].join('|'),
-                r
-            ]));
-
-            const rowsHtml = (this.costRows || []).map((row, i) => `
-                <tr>
-                    <td>${i + 1}</td>
-                    <td>${escapeHtml(row.description)}</td>
-                    <td>${escapeHtml(row.material)}</td>
-                    <td>${escapeHtml(row.size)}</td>
-                    <td>${escapeHtml(row.spec)}</td>
-                    <td class="center">${escapeHtml(row.quantity)} ${escapeHtml(row.unit || 'EA')}</td>
-                    <td class="right">${Number(row.unitPrice || 0).toLocaleString('id-ID')}</td>
-                    <td class="right">${Number(row.total || 0).toLocaleString('id-ID')}</td>
-                </tr>`).join('');
-
-            const approved = [...(this.projectApprovalHistory || [])].reverse().find(item => item.status === 'APPROVED');
-            const reportHtml = `<!doctype html>
-<html><head><meta charset="utf-8"><title>${escapeHtml(this.activeProject)} - Final BOQ Report</title>
-<style>
-body{font-family:Arial,sans-serif;color:#172033;font-size:11px;padding:28px}
-h1{font-size:20px;margin:0 0 5px} h2{font-size:13px;margin:22px 0 8px}
-.meta{color:#64748b;margin-bottom:18px}.status{display:inline-block;padding:5px 10px;border:1px solid #86efac;background:#f0fdf4;color:#15803d;border-radius:6px;font-weight:700}
-table{width:100%;border-collapse:collapse;margin-top:10px} th,td{border:1px solid #cbd5e1;padding:7px} th{background:#e2e8f0;text-align:left}.center{text-align:center}.right{text-align:right}
-.total{margin-top:12px;text-align:right;font-size:14px;font-weight:700}.note{margin-top:18px;padding:10px;background:#f8fafc;border:1px solid #e2e8f0}
-@page{size:landscape;margin:12mm}
-</style></head><body>
-<h1>${escapeHtml(this.activeProject)} — Final BOQ Report</h1>
-<div class="meta">Sheet: ${escapeHtml(this.qtoSourceSheet || this.activeSheet)} &nbsp;|&nbsp; Generated: ${escapeHtml(new Date().toLocaleString('id-ID'))}</div>
-<div class="status">APPROVED</div>
-<h2>Quantity Take-Off & Cost Summary</h2>
-<table><thead><tr><th>No</th><th>Description</th><th>Material</th><th>Size</th><th>Spec</th><th>Quantity</th><th>Unit Price</th><th>Total</th></tr></thead>
-<tbody>${rowsHtml}</tbody></table>
-<div class="total">TOTAL BOQ: ${Number(this.finalReportTotal || 0).toLocaleString('id-ID')}</div>
-<div class="note"><b>Approved By:</b> ${escapeHtml(approved?.reviewer || 'Lead Estimator')}<br><b>Approved At:</b> ${escapeHtml(approved?.timestamp || '-')}<br><b>Catatan:</b> ${escapeHtml(approved?.notes || 'Laporan disetujui oleh Lead Estimator.')}</div>
-</body></html>`;
-
-            const win = window.open('', '_blank', 'width=1200,height=800');
-            if (!win) return alert('Popup diblokir browser. Izinkan popup untuk export laporan final.');
-            win.document.write(reportHtml);
-            win.document.close();
-            win.focus();
-            setTimeout(() => win.print(), 300);
-        },
-
-        openActiveTasks() {
-            this.taskView = 'active';
-        },
-
-        openApprovalHistory() {
-            this.taskView = 'history';
-        },
-
-        openTaskMTOValve() {
-            this.activeSheet = 'Valve';
-            this.currentDashboardTab = 'workspace';
-            if (this.loginForm.role === 'Piping Engineer' && this.activeTaskCount > 0) {
-                this.alertMessage = '';
-            }
-        },
-
-        openApprovalDetail(item) {
-            this.approvalNote = item?.notes || '';
-            // Untuk approval yang sudah final, tampilkan laporan BOQ lengkap, bukan alert browser.
-            if (item?.status === 'APPROVED' && this.finalReportAvailable) {
-                this.loadWorkflowState();
-                this.showFinalReportModal = true;
-                return;
-            }
-            // Untuk status selain APPROVED, tetap gunakan dialog sederhana agar tidak mengubah workflow.
-            alert(`${item?.title || 'Detail Approval'}\n\nStatus: ${this.getApprovalStatusText(item?.status)}\nProject: ${item?.projectId || '-'}\nSheet: ${item?.sheet || '-'}\nReviewer: ${item?.reviewer || '-'}\nCatatan: ${item?.notes || '-'}`);
-        },
-
-        submitMTOToEstimator() {
-            if (this.loginForm.role !== 'Piping Engineer') return;
-            if (!this.currentRows.length) return alert('MTO masih kosong.');
-            const groups = this.getBomGroups();
-            if (!groups.length) return alert('Quantity Take-Off belum dapat dibuat dari data MTO ini.');
-            this.qtoRows = groups.map(g => ({ ...g }));
-            this.qtoSourceSheet = this.activeSheet;
-            this.qtoSubmittedAt = new Date().toISOString();
-            this.workflowStatus = 'SUBMITTED_TO_ESTIMATOR';
-            this.saveWorkflowState();
-            this.createWorkflowHistory('SUBMITTED_TO_ESTIMATOR', 'Quantity Take-Off dikirim ke Estimator', `Engineer mengirim ${this.qtoRows.length} kelompok material dari sheet ${this.activeSheet}. Quantity menjadi sumber BOQ Estimator.`);
-            alert('MTO berhasil dikirim ke Estimator.');
-        },
-
-        openCalculateBom() {
-            this.bomMaterialType = this.getBomMaterialOptions()[0] || 'Pipe';
-            this.bomSizeFilter = '';
-            this.bomSpecFilter = '';
-            this.bomOD = 0;
-            this.bomThickness = 0;
-            this.bomLength = 6;
-            this.bomQuantityInput = 0;
-            this.showBoqModal = true;
-            this.$nextTick(() => this.refreshBomQuantity());
-        },
-
-        refreshBomQuantity() {
-            const qty = this.getBomFilteredGroups().reduce((sum, item) => sum + item.quantity, 0);
-            this.bomQuantityInput = qty;
-            return qty;
-        },
-
-        getBomQuantity(row) {
-            const keys = Object.keys(row || {});
-            const key = keys.find(k => /^(qty|quantity|item count|item_count|count|jumlah)$/i.test(String(k).trim()))
-                || keys.find(k => /quantity|qty|item.?count|jumlah/i.test(String(k)));
-            const value = key ? Number(String(row[key]).replace(/,/g, '')) : NaN;
-            return Number.isFinite(value) && value > 0 ? value : 1;
-        },
-
-        getBomField(row, patterns) {
-            const key = Object.keys(row || {}).find(k => patterns.some(p => p.test(String(k))));
-            return key ? String(row[key] ?? '').trim() : '';
-        },
-
-        getBomMaterialOptions() {
-            const sheet = String(this.activeSheet || '').trim();
-            const map = {
-                'Valve': 'Valve', 'SP Items': 'SP Items', 'Support': 'Pipe Support',
-                'LineList': 'Pipe', 'Pipe': 'Pipe', 'Single Branch Fitting': 'Fitting',
-                'Tee': 'Fitting', 'Flange': 'Fitting', 'Elbow': 'Fitting', 'Nozzle': 'Fitting',
-                'Vessel': 'Vessel', 'Tank': 'Tank', 'Pump': 'Pump', 'Misc Equipment': 'Misc Equipment',
-                'Equipment': 'Equipment', 'Piping and Equipment': 'Equipment'
-            };
-            return [map[sheet] || sheet || 'Pipe'];
-        },
-
-        getBomSizeOptions() {
-            const values = new Set();
-            (Array.isArray(this.currentRows) ? this.currentRows : []).forEach(row => {
-                const value = this.getBomField(row, [/^size$/i, /line size/i, /available size/i]);
-                if (value) values.add(value);
-            });
-            return Array.from(values);
-        },
-
-        getBomSpecOptions() {
-            const values = new Set();
-            (Array.isArray(this.currentRows) ? this.currentRows : []).forEach(row => {
-                const value = this.getBomField(row, [/^spec$/i, /pipe\.?spec/i, /pipe spec/i]);
-                if (value) values.add(value);
-            });
-            return Array.from(values);
-        },
-
-        getBomGroups() {
-            const rows = Array.isArray(this.currentRows) ? this.currentRows : [];
-            const groups = new Map();
-            rows.forEach((row) => {
-                const material = this.getBomField(row, [/^material$/i, /material/i]) || '-';
-                const size = this.getBomField(row, [/^size$/i, /line size/i, /available size/i]) || '-';
-                const spec = this.getBomField(row, [/^spec$/i, /pipe\.?spec/i, /pipe spec/i]) || '-';
-                const desc = this.getBomField(row, [/long description/i, /short description/i, /description/i]) || this.activeSheet;
-                const key = [material, size, spec, desc].join('|');
-                if (!groups.has(key)) groups.set(key, { material, size, spec, description: desc, quantity: 0 });
-                groups.get(key).quantity += this.getBomQuantity(row);
-            });
-            return Array.from(groups.values());
-        },
-
-        getBomFilteredGroups() {
-            const size = String(this.bomSizeFilter || '').toLowerCase();
-            const spec = String(this.bomSpecFilter || '').toLowerCase();
-            const groups = this.getBomGroups().filter(item =>
-                (!size || item.size.toLowerCase() === size || item.size.toLowerCase().includes(size)) &&
-                (!spec || item.spec.toLowerCase() === spec || item.spec.toLowerCase().includes(spec))
-            );
-            return groups;
-        },
-
-        syncBomQuantity() {
-            const qty = this.getBomFilteredGroups().reduce((sum, item) => sum + item.quantity, 0);
-            if (!Number.isFinite(Number(this.bomQuantityInput)) || Number(this.bomQuantityInput) <= 0) {
-                this.bomQuantityInput = qty;
-            }
-            return qty;
-        },
-
-        get isPipeBom() {
-            return String(this.bomMaterialType || '').trim().toLowerCase() === 'pipe';
-        },
-
-        calculatePipeWeight() {
-            const od = Number(this.bomOD);
-            const t = Number(this.bomThickness);
-            const length = Number(this.bomLength);
-            const qty = Number(this.bomQuantityInput) || this.getBomFilteredGroups().reduce((sum, item) => sum + item.quantity, 0);
-            if (!(od > 0 && t > 0 && length > 0 && qty > 0)) return { kgm: 0, perPipe: 0, total: 0, qty };
-            const kgm = (od - t) * t * 0.2466;
-            const perPipe = kgm * length;
-            return { kgm, perPipe, total: perPipe * qty, qty };
-        },
-
-        get qtoTotalQuantity() {
-            return (this.qtoRows || []).reduce((sum, r) => sum + (Number(r.quantity) || 0), 0);
+            const win = window.open('', '_blank', 'width=1100,height=850');
+            if (!win) return alert('Popup diblokir browser. Izinkan popup untuk membuka laporan PDF.');
+            win.document.open(); win.document.write(html); win.document.close(); win.focus();
+            setTimeout(() => win.print(), 500);
         },
 
         exportBOQ() {
-            const groups = this.getBomFilteredGroups();
-            if (!groups.length) return alert('Tidak ada data untuk Quantity Take-Off pada sheet ini.');
+            const meta = this.allProjectsData?.[this.activeProject]?.meta;
+            const boq = meta?.boq;
+            if (!boq?.items?.length) return alert('BOQ belum tersedia. Estimator harus menghitung BOM terlebih dahulu.');
 
-            const rowsHtml = groups.map((item, i) => `
+            const format = (num) => {
+                const currency = boq.currency === 'IDR' ? 'IDR' : 'USD';
+                return new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 2 }).format(Number(num) || 0);
+            };
+            const rows = boq.items.map((item, index) => `
                 <tr>
-                    <td>${i + 1}</td>
-                    <td>${item.description}</td>
-                    <td>${item.material}</td>
-                    <td>${item.size}</td>
-                    <td>${item.spec}</td>
-                    <td>${item.quantity}</td>
-                    <td>EA</td>
+                    <td>${index + 1}</td><td>${item.lineNo || '-'}</td><td>${item.sheet || '-'}</td><td>${item.component || '-'}</td>
+                    <td>${Number(item.qty || 0).toFixed(2)}</td><td>${item.unit || '-'}</td><td>${format(item.unitPrice)}</td><td>${format(item.totalPrice)}</td>
                 </tr>`).join('');
 
-            const htmlReport = `<!doctype html><html><head><meta charset="utf-8"><title>Quantity Take-Off ${this.activeProject}</title>
-                <style>
-                    body{font-family:Arial,sans-serif;font-size:12px;padding:24px;color:#172033}
-                    h1{font-size:18px;margin:0 0 4px} p{color:#64748b}
-                    table{width:100%;border-collapse:collapse;margin-top:16px}
-                    th{background:#eaf0f6;font-weight:700} th,td{border:1px solid #cbd5e1;padding:7px;text-align:left}
-                    td:nth-child(1),td:nth-child(6){text-align:center}
-                </style></head><body>
-                <h1>${this.activeProject} — Quantity Take-Off</h1>
-                <p>Sheet: ${this.activeSheet} • ${new Date().toLocaleString('id-ID')}</p>
-                <table><thead><tr><th>No</th><th>Description</th><th>Material</th><th>Size</th><th>Spec</th><th>Quantity</th><th>Unit</th></tr></thead>
-                <tbody>${rowsHtml}</tbody></table></body></html>`;
-
-            const win = window.open('', '_blank');
-            if (!win) return alert('Popup diblokir browser. Izinkan popup untuk export laporan.');
-            win.document.write(htmlReport);
-            win.document.close();
-            setTimeout(() => win.print(), 300);
+            const html = `<!doctype html><html><head><meta charset="utf-8"><title>BOQ ${this.activeProject}</title><style>
+                body{font-family:Arial,sans-serif;font-size:10pt;color:#111;padding:25px}h1{font-size:16pt;margin-bottom:4px}h2{font-size:12pt;margin-top:25px}table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border:1px solid #777;padding:6px}th{background:#e2e8f0;text-align:center}td:nth-child(1),td:nth-child(5){text-align:center}td:nth-child(n+7){text-align:right}.summary{margin-top:18px;width:420px;margin-left:auto}.summary td{border:none;padding:4px}.total{font-weight:bold;border-top:1px solid #111!important}.muted{color:#64748b;font-size:9pt}
+            </style></head><body>
+                <h1>PT. TRIPATRA ENGINEERING</h1><div class="muted">Laporan Kalkulasi Biaya BOQ • ${this.activeProject} • Rev ${meta.version || 0}</div>
+                <h2>Ringkasan BOQ</h2><div>Level Harga: <b>${boq.priceLevel || '-'}</b> &nbsp; | &nbsp; Mata Uang: <b>${boq.currency || '-'}</b></div>
+                <table><thead><tr><th>No</th><th>Line No.</th><th>Sheet</th><th>Component</th><th>Qty</th><th>Unit</th><th>Unit Price</th><th>Total</th></tr></thead><tbody>${rows}</tbody></table>
+                <table class="summary"><tr><td>Direct Cost</td><td>${format(boq.directCost)}</td></tr><tr><td>Indirect Cost</td><td>${format(boq.indirectCost)}</td></tr><tr class="total"><td>Total BOQ</td><td>${format(boq.totalCost)}</td></tr></table>
+            </body></html>`;
+            const blob = new Blob(['\ufeff' + html], { type: 'application/msword' });
+            const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `Laporan_BOQ_${this.activeProject}_Rev${meta.version || 0}.doc`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
         },
 
         printPDF() {

@@ -122,13 +122,21 @@
                 </div>
 
                 <!-- CALCULATE BOM: MENU UTAMA, DI LUAR CREATE PROJECT -->
-                <button @click="openCalculateBom()" :class="showBoqModal ? 'bg-[#82C341] text-white font-semibold' : 'hover:bg-blue-900/50 text-slate-300'" class="sidebar-menu-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition mt-1">
+                <button x-show="loginForm.role === 'Piping Engineer'" @click="openCalculateBOM()" :class="showBomModal ? 'bg-[#82C341] text-white font-semibold' : 'hover:bg-blue-900/50 text-slate-300'" class="sidebar-menu-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition mt-1">
                     <i class="fa-solid fa-calculator text-base shrink-0 w-4 text-center"></i>
                     <span class="sidebar-text text-xs font-medium">Calculate BOM</span>
                 </button>
 
+                <template x-if="loginForm.role === 'Piping Engineer' && workflowStatus === 'APPROVED'">
+                    <button @click="startNewRevision()"
+                        class="sidebar-menu-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition hover:bg-amber-900/40 text-amber-200">
+                        <i class="fa-solid fa-rotate text-base shrink-0 w-4 text-center"></i>
+                        <span class="sidebar-text text-xs font-medium">Mulai Revisi Baru</span>
+                    </button>
+                </template>
+
                 <!-- TASKS & APPROVALS -->
-                <button @click="loadWorkflowState(); currentDashboardTab = 'tasks'" :class="currentDashboardTab === 'tasks' ? 'bg-[#82C341] text-white font-semibold' : 'hover:bg-blue-900/50 text-slate-300'" class="sidebar-menu-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition">
+                <button @click="currentDashboardTab = 'tasks'" :class="currentDashboardTab === 'tasks' ? 'bg-[#82C341] text-white font-semibold' : 'hover:bg-blue-900/50 text-slate-300'" class="sidebar-menu-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition">
                     <i class="fa-solid fa-list-check text-base shrink-0 w-4 text-center"></i>
                     <span class="sidebar-text text-xs font-medium">Tasks &amp; Approvals</span>
                 </button>
@@ -270,23 +278,20 @@
 
                         <div class="flex items-center space-x-2 w-full md:w-auto justify-end flex-wrap gap-2">
                             <template x-if="loginForm.role === 'Estimator Proposal'">
-                                <button @click="generateBOQ" class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold transition flex items-center space-x-1.5 shadow">
-                                    <i class="fa-solid fa-calculator text-[10px]"></i>
-                                    <span>Kalkulasi Biaya BOQ</span>
+                                <button @click="generateBOQ"
+                                    class="px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-1.5 shadow"
+                                    :class="workflowStatus === 'APPROVED' ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-indigo-600 hover:bg-indigo-700 text-white'">
+                                    <i class="fa-solid text-[10px]" :class="workflowStatus === 'APPROVED' ? 'fa-file-pdf' : 'fa-calculator'"></i>
+                                    <span x-text="workflowStatus === 'APPROVED' ? 'Lihat Laporan Final' : 'Kalkulasi Biaya BOQ'"></span>
                                 </button>
                             </template>
 
                             <template x-if="loginForm.role === 'Lead Estimator'">
-                                <button @click="approveData" class="px-3.5 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-semibold transition flex items-center space-x-1.5 shadow">
-                                    <i class="fa-solid fa-check-double text-[10px]"></i>
-                                    <span>Approval & Review Laporan</span>
-                                </button>
-                            </template>
-
-                            <template x-if="loginForm.role === 'Piping Engineer' && finalReportAvailable">
-                                <button @click="openFinalReport()" class="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition flex items-center space-x-1.5 shadow">
-                                    <i class="fa-solid fa-file-circle-check text-[10px]"></i>
-                                    <span>Laporan BOQ Final</span>
+                                <button @click="approveData"
+                                    class="px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-1.5 shadow"
+                                    :class="workflowStatus === 'APPROVED' ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-sky-600 hover:bg-sky-700 text-white'">
+                                    <i class="fa-solid text-[10px]" :class="workflowStatus === 'APPROVED' ? 'fa-file-pdf' : 'fa-check-double'"></i>
+                                    <span x-text="workflowStatus === 'APPROVED' ? 'Lihat Laporan Final' : 'Approval & Review Laporan'"></span>
                                 </button>
                             </template>
 
@@ -315,6 +320,7 @@
                             <div class="flex items-center space-x-3 flex-wrap gap-2">
                                 <span class="text-xs font-bold text-slate-800" x-text="'Proyek: ' + activeProject + ' | Sheet: ' + activeSheet"></span>
                                 <span class="bg-slate-100 border border-slate-300 text-slate-700 px-2 py-0.5 rounded-md text-[10px] font-bold" x-text="getProjectVersion()"></span>
+                                <span class="px-2 py-0.5 rounded-md border text-[10px] font-bold" :class="workflowStatusClass" x-text="workflowStatusText"></span>
 
                                 <div class="flex items-center space-x-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1">
                                     <span class="text-[10px] font-semibold text-slate-500">Progress:</span>
@@ -379,7 +385,7 @@
                                             <td class="font-mono text-[#82C341] font-semibold text-center"
                                                 :class="getNoFreezeClass()"
                                                 style="min-width: 55px; width: 55px;"
-                                                x-text="getDisplayRowNumber(row, index)">
+                                                x-text="getRowNumber(row, index)">
                                             </td>
 
                                             <template x-for="col in currentColumns" :key="tableRenderKey + '-cell-' + index + '-' + col">
@@ -504,16 +510,10 @@
                             <div class="flex items-center gap-3 min-w-0">
                                 <span class="whitespace-nowrap">Menampilkan Baris: <span class="text-slate-800 font-bold" x-text="filteredRows.length"></span> Data</span>
                                 <template x-if="loginForm.role === 'Piping Engineer'">
-                                    <div class="flex items-center gap-2">
-                                        <button @click="openAddModalForActiveSheet()" style="background-color: #82C341;" class="px-3.5 py-2 text-white rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow hover:opacity-90 whitespace-nowrap">
-                                            <i class="fa-solid fa-plus text-[10px]"></i>
-                                            <span>Add data</span>
-                                        </button>
-                                        <button x-show="currentRows.length > 0" @click="submitMTOToEstimator()" class="px-3.5 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow whitespace-nowrap">
-                                            <i class="fa-solid fa-paper-plane text-[10px]"></i>
-                                            <span>Kirim ke Estimator</span>
-                                        </button>
-                                    </div>
+                                    <button @click="openAddModalForActiveSheet()" style="background-color: #82C341;" class="px-3.5 py-2 text-white rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow hover:opacity-90 whitespace-nowrap">
+                                        <i class="fa-solid fa-plus text-[10px]"></i>
+                                        <span x-text="'Add data'"></span>
+                                    </button>
                                 </template>
                                 <template x-if="loginForm.role !== 'Piping Engineer'">
                                     <span class="px-3 py-2 bg-slate-100 border border-slate-200 text-slate-500 rounded-xl text-[10px] whitespace-nowrap">Tambah data hanya untuk Piping Engineer</span>
@@ -528,17 +528,17 @@
                     </div>
 
                     <!-- PILIHAN SHEET -->
-                    <div class="sheet-navigation-card bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
+                    <div class="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
                         <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center space-x-2">
                             <i class="fa-solid fa-table-cells text-[#82C341]"></i>
                             <span>Navigasi Kategori Sheet Master Data (23 Kategori):</span>
                         </div>
-                        <div class="sheet-nav-buttons flex flex-wrap gap-2 pb-1">
+                        <div class="flex overflow-x-auto space-x-2 pb-1 custom-scrollbar">
                             <template x-for="sheet in sheets" :key="sheet">
-                                <button type="button" @click="changeSheet(sheet)"
+                                <button type="button" @click.stop="changeSheet(sheet)"
                                     :style="activeSheet === sheet ? 'background-color: #82C341;' : ''"
                                     :class="activeSheet === sheet ? 'text-white font-bold shadow-md' : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200'"
-                                    class="sheet-nav-btn px-3.5 py-2 rounded-xl text-xs whitespace-nowrap transition" x-text="sheet"></button>
+                                    class="px-3.5 py-2 rounded-xl text-xs whitespace-nowrap transition" x-text="sheet"></button>
                             </template>
                         </div>
                     </div>
@@ -566,40 +566,26 @@
                         <!-- TUGAS AKTIF -->
                         <template x-if="taskView === 'active'">
                             <div class="space-y-3">
-                                <div class="p-4 bg-slate-50 border border-slate-200 rounded-xl">
-                                    <div class="flex items-center justify-between gap-3">
-                                        <span class="text-xs font-bold text-slate-800">Status Workflow Project</span>
-                                        <span class="px-2 py-1 rounded-lg text-[10px] font-bold" :class="getApprovalStatusClass(workflowStatus)" x-text="getApprovalStatusText(workflowStatus)"></span>
+                                <div class="p-4 bg-sky-50/50 border border-sky-200 rounded-xl space-y-2">
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-xs font-bold text-sky-900">Status Project & Catatan Revisi Terakhir</span>
+                                        <span class="px-2 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-bold rounded"
+                                              x-text="latestApproval ? getApprovalStatusText(latestApproval.status) : 'Menunggu'"></span>
                                     </div>
-                                    <p class="text-[11px] text-slate-500 mt-2">Alur: <b>Engineer → Quantity Take-Off → Estimator → BOQ Cost → Lead Estimator</b>. Setiap tahap menggunakan hasil tahap sebelumnya dan tersimpan di riwayat.</p>
+                                    <p class="text-xs text-slate-600"
+                                       x-text="latestApproval?.notes || allProjectsData[activeProject]?.meta?.revisionNotes || 'Belum ada catatan revisi yang tersimpan.'"></p>
                                 </div>
-
-                                <template x-if="loginForm.role === 'Piping Engineer' && finalReportAvailable">
-                                    <div class="p-4 bg-emerald-50 border border-emerald-200 rounded-xl shadow-sm flex items-center justify-between gap-4">
-                                        <div class="space-y-1">
-                                            <div class="flex items-center gap-2">
-                                                <span class="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-bold rounded">FINAL APPROVED</span>
-                                                <span class="text-xs font-bold text-slate-800">Laporan BOQ sudah disetujui Lead</span>
-                                            </div>
-                                            <p class="text-[11px] text-slate-600">Engineer dapat melihat quantity, unit price, total biaya, status approval, dan mencetak laporan final.</p>
-                                        </div>
-                                        <button type="button" @click="openFinalReport()" class="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-semibold hover:bg-emerald-700 whitespace-nowrap">
-                                            <i class="fa-solid fa-file-circle-check mr-1"></i> Lihat Laporan
-                                        </button>
-                                    </div>
-                                </template>
 
                                 <template x-if="activeTaskCount > 0">
                                     <div class="p-4 bg-white border border-slate-200 rounded-xl shadow-sm flex items-center justify-between gap-4">
                                         <div class="space-y-1">
                                             <div class="flex items-center space-x-2">
-                                                <span class="px-2 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-bold rounded">Tugas Aktif</span>
-                                                <span class="text-xs font-bold text-slate-800" x-text="loginForm.role === 'Piping Engineer' ? 'Lengkapi MTO & kirim ke Estimator' : (loginForm.role === 'Estimator Proposal' ? 'Hitung BOQ & kirim ke Lead' : 'Review dan putuskan laporan Estimator')"></span>
+                                                <span class="px-2 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-bold rounded">High Priority</span>
+                                                <span class="text-xs font-bold text-slate-800">Review MTO & Spesifikasi Valve Proyek Saat Ini</span>
                                             </div>
-                                            <p class="text-[11px] text-slate-500" x-text="loginForm.role === 'Piping Engineer' ? 'Pastikan data MTO sudah benar sebelum dikirim.' : (loginForm.role === 'Estimator Proposal' ? 'Masukkan unit price bila diperlukan lalu kirim hasil BOQ.' : 'Periksa hasil BOQ, beri catatan, lalu Approve / Reject / Minta Revisi.')"></p>
+                                            <p class="text-[11px] text-slate-500">Periksa kembali data material take off (MTO) pada sheet Valve sebelum diserahkan ke Lead Estimator.</p>
                                         </div>
-                                        <button type="button"
-                                            @click="loginForm.role === 'Piping Engineer' ? (activeSheet = 'Valve', currentDashboardTab = 'workspace') : (loginForm.role === 'Estimator Proposal' ? generateBOQ() : approveData())"
+                                        <button type="button" @click="openTaskMTOValve()"
                                             class="px-3 py-1.5 bg-slate-800 text-white rounded-lg text-xs font-semibold hover:bg-slate-700 whitespace-nowrap">
                                             Kerjakan
                                         </button>
@@ -610,7 +596,7 @@
                                     <div class="p-8 text-center border border-dashed border-slate-300 rounded-xl bg-slate-50">
                                         <i class="fa-solid fa-circle-check text-emerald-500 text-2xl mb-2"></i>
                                         <p class="text-xs font-bold text-slate-700">Tidak ada tugas aktif</p>
-                                        <p class="text-[11px] text-slate-500 mt-1">Status saat ini: <span x-text="getApprovalStatusText(workflowStatus)"></span>.</p>
+                                        <p class="text-[11px] text-slate-500 mt-1">Keputusan terakhir sudah masuk ke Riwayat Selesai.</p>
                                     </div>
                                 </template>
                             </div>
@@ -640,7 +626,7 @@
                                                         <p class="text-[10px] text-slate-400" x-text="item.timestamp"></p>
                                                         <p x-show="item.notes" class="text-[11px] text-slate-600 bg-slate-50 border border-slate-200 rounded-lg p-2" x-text="item.notes"></p>
                                                     </div>
-                                                    <button @click="openApprovalDetail(item)" class="px-3 py-1.5 bg-slate-800 text-white rounded-lg text-[10px] font-semibold hover:bg-slate-700 whitespace-nowrap">Lihat Detail</button>
+                                                    <button @click="openApprovalDetail(item)" class="px-3 py-1.5 bg-slate-800 text-white rounded-lg text-[10px] font-semibold hover:bg-slate-700 whitespace-nowrap">Laporan PDF</button>
                                                 </div>
                                             </div>
                                         </template>
@@ -861,7 +847,7 @@
     </div>
 
     <!-- MODAL TAMBAH DATA DINAMIS -->
-    <div x-show="showAddModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
+    <div x-show="showAddModal" x-cloak class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
         <div class="bg-white border border-slate-200 rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
             <div class="flex items-center justify-between border-b border-slate-200 pb-3">
                 <h3 class="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center space-x-2">
@@ -975,488 +961,310 @@
         </div>
     </div>
 
-    <!-- MODAL CALCULATE BOM / QUANTITY TAKE-OFF -->
-    <div x-show="showBoqModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
-        <div @click.stop class="bg-white border border-slate-200 rounded-2xl max-w-3xl w-full max-h-[92vh] overflow-y-auto shadow-2xl">
-            <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+    <!-- MODAL CALCULATE BOM / BQ - ENGINEER -->
+    <div x-show="showBomModal" x-cloak class="bom-modal-overlay fixed inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
+        <div class="bg-white border border-slate-200 rounded-2xl w-[96vw] max-w-[1500px] max-h-[92vh] shadow-2xl flex flex-col overflow-hidden">
+            <div class="p-5 border-b border-slate-200 flex items-center justify-between shrink-0">
                 <div>
-                    <h3 class="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
-                        <i class="fa-solid fa-calculator text-[#82C341]"></i>
-                        Calculate BOM
-                    </h3>
-                    <p class="text-[10px] text-slate-500 mt-1">
-                        Quantity Take-Off & Technical Calculation • Proyek <span class="font-semibold" x-text="activeProject"></span> • Sheet <span class="font-semibold" x-text="activeSheet"></span>
-                    </p>
+                    <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-calculator text-[#82C341]"></i> CALCULATE BOM</h3>
+                    <p class="text-[10px] text-slate-500 mt-1">Perhitungan quantity BQ berdasarkan data MTO per Line No. Prototype sesuai alur Engineer → Estimator → Lead.</p>
                 </div>
-                <button @click="showBoqModal = false" class="text-slate-400 hover:text-slate-800">
-                    <i class="fa-solid fa-xmark text-lg"></i>
-                </button>
+                <button @click="showBomModal = false" class="text-slate-400 hover:text-slate-800"><i class="fa-solid fa-xmark"></i></button>
             </div>
 
-            <div class="p-6 space-y-5">
-                <!-- INPUT UTAMA -->
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-x-5 gap-y-4">
-                    <div>
-                        <label class="block text-[11px] font-semibold text-slate-700 mb-1.5">Material</label>
-                        <select x-model="bomMaterialType" @change="bomOD=0; bomThickness=0; refreshBomQuantity()" class="w-full h-10 px-3 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#82C341]">
-                            <template x-for="item in getBomMaterialOptions()" :key="item">
-                                <option :value="item" x-text="item"></option>
-                            </template>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-[11px] font-semibold text-slate-700 mb-1.5">Size</label>
-                        <select x-model="bomSizeFilter" @change="refreshBomQuantity()" class="w-full h-10 px-3 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#82C341]">
-                            <option value="">Semua Size</option>
-                            <template x-for="item in getBomSizeOptions()" :key="item">
-                                <option :value="item" x-text="item"></option>
-                            </template>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-[11px] font-semibold text-slate-700 mb-1.5">Spec</label>
-                        <select x-model="bomSpecFilter" @change="refreshBomQuantity()" class="w-full h-10 px-3 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#82C341]">
-                            <option value="">Semua Spec</option>
-                            <template x-for="item in getBomSpecOptions()" :key="item">
-                                <option :value="item" x-text="item"></option>
-                            </template>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-[11px] font-semibold text-slate-700 mb-1.5">Quantity</label>
-                        <input x-model.number="bomQuantityInput" type="number" min="0" step="1" class="w-full h-10 px-3 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#82C341]">
-                        <p class="text-[9px] text-slate-400 mt-1">Default mengikuti quantity hasil MTO.</p>
-                    </div>
-                    <template x-if="isPipeBom">
-                        <div class="md:col-span-2">
-                            <label class="block text-[11px] font-semibold text-slate-700 mb-1.5">Length / Item</label>
-                            <div class="relative">
-                                <input x-model.number="bomLength" type="number" min="0" step="0.01" class="w-full h-10 px-3 pr-12 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#82C341]">
-                                <span class="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-semibold text-slate-500">m</span>
-                            </div>
-                        </div>
-                    </template>
+            <div class="p-5 overflow-y-auto custom-scrollbar space-y-4">
+                <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+                    <div class="bg-slate-50 border border-slate-200 rounded-xl p-3"><span class="text-[10px] text-slate-400 block">Total Item MTO</span><b class="text-lg text-slate-700" x-text="allProjectsData[activeProject]?.meta?.bom?.totalItems || 0"></b></div>
+                    <div class="bg-slate-50 border border-slate-200 rounded-xl p-3"><span class="text-[10px] text-slate-400 block">Total Quantity</span><b class="text-lg text-slate-700" x-text="(allProjectsData[activeProject]?.meta?.bom?.totalQty || 0).toFixed(2)"></b></div>
+                    <div class="bg-slate-50 border border-slate-200 rounded-xl p-3"><span class="text-[10px] text-slate-400 block">Pipe Quantity</span><b class="text-lg text-slate-700" x-text="(allProjectsData[activeProject]?.meta?.bom?.pipeQty || 0).toFixed(2) + ' m'"></b></div>
+                    <div class="bg-slate-50 border border-slate-200 rounded-xl p-3"><span class="text-[10px] text-slate-400 block">Total Inch-Dia</span><b class="text-lg text-indigo-600" x-text="(allProjectsData[activeProject]?.meta?.bom?.totalInchDia || 0).toFixed(2)"></b></div>
+                    <div class="bg-slate-50 border border-slate-200 rounded-xl p-3"><span class="text-[10px] text-slate-400 block">Total Joint</span><b class="text-lg text-slate-700" x-text="(allProjectsData[activeProject]?.meta?.bom?.totalJoint || 0).toFixed(2)"></b></div>
                 </div>
 
-                <!-- TECHNICAL CALCULATION -->
-                <div class="border border-slate-300 rounded-xl overflow-hidden">
-                    <div class="px-4 py-3 bg-slate-50 border-b border-slate-300">
-                        <h4 class="text-xs font-bold text-slate-800 uppercase tracking-wide"
-                            x-text="isPipeBom ? 'TECHNICAL CALCULATION' : 'QUANTITY CALCULATION'"></h4>
-                    </div>
-
-                    <!-- PIPE: technical weight calculation -->
-                    <template x-if="isPipeBom">
-                        <div class="p-4">
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div>
-                                    <label class="block text-[11px] font-semibold text-slate-700 mb-1.5">Outside Diameter (OD)</label>
-                                    <div class="relative">
-                                        <input x-model.number="bomOD" type="number" min="0" step="0.01" placeholder="16.8"
-                                            class="w-full h-10 px-3 pr-12 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#82C341]">
-                                        <span class="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-semibold text-slate-500">cm</span>
-                                    </div>
-                                </div>
-                                <div>
-                                    <label class="block text-[11px] font-semibold text-slate-700 mb-1.5">Wall Thickness (t)</label>
-                                    <div class="relative">
-                                        <input x-model.number="bomThickness" type="number" min="0" step="0.01" placeholder="0.5"
-                                            class="w-full h-10 px-3 pr-12 bg-white border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-[#82C341]">
-                                        <span class="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-semibold text-slate-500">cm</span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="mt-4 pt-4 border-t border-slate-200 grid grid-cols-1 md:grid-cols-2 gap-3">
-                                <div class="flex items-center justify-between px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg">
-                                    <span class="text-[10px] text-slate-600">Weight / Meter</span>
-                                    <span class="text-xs font-bold text-[#82C341]"
-                                          x-text="calculatePipeWeight().kgm ? calculatePipeWeight().kgm.toFixed(3) + ' kg/m' : '-'"></span>
-                                </div>
-                                <div class="flex items-center justify-between px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg">
-                                    <span class="text-[10px] text-slate-600">Weight / Pipe</span>
-                                    <span class="text-xs font-bold text-slate-800"
-                                          x-text="calculatePipeWeight().perPipe ? calculatePipeWeight().perPipe.toFixed(2) + ' kg' : '-'"></span>
-                                </div>
-                            </div>
-
-                            <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-                                <div class="flex items-center justify-between px-3 py-3 bg-[#f4f8ef] border border-[#d8e9c5] rounded-lg">
-                                    <span class="text-[10px] font-semibold text-slate-700">TOTAL QUANTITY</span>
-                                    <span class="text-sm font-bold text-[#82C341]" x-text="(Number(bomQuantityInput) || 0) + ' EA'"></span>
-                                </div>
-                                <div class="flex items-center justify-between px-3 py-3 bg-[#f4f8ef] border border-[#d8e9c5] rounded-lg">
-                                    <span class="text-[10px] font-semibold text-slate-700">TOTAL WEIGHT</span>
-                                    <span class="text-sm font-bold text-slate-800"
-                                          x-text="calculatePipeWeight().total ? calculatePipeWeight().total.toFixed(2) + ' kg' : '-'"></span>
-                                </div>
-                            </div>
-
-                            <div class="mt-4 px-3 py-2.5 bg-white border border-slate-200 rounded-lg">
-                                <div class="text-[9px] text-slate-500 mb-1">Rumus dasar berat pipa</div>
-                                <div class="text-[10px] font-semibold text-slate-700">(OD − t) × t × 0,2466 = kg/m</div>
-                            </div>
-                        </div>
-                    </template>
-
-                    <!-- VALVE/FITTING/EQUIPMENT: quantity only -->
-                    <template x-if="!isPipeBom">
-                        <div class="p-4">
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                <div class="flex items-center justify-between px-4 py-4 bg-slate-50 border border-slate-200 rounded-lg">
-                                    <div>
-                                        <div class="text-[10px] text-slate-500 uppercase tracking-wide">Material</div>
-                                        <div class="text-sm font-semibold text-slate-800 mt-1" x-text="bomMaterialType"></div>
-                                    </div>
-                                </div>
-                                <div class="flex items-center justify-between px-4 py-4 bg-[#f4f8ef] border border-[#d8e9c5] rounded-lg">
-                                    <div>
-                                        <div class="text-[10px] text-slate-500 uppercase tracking-wide">Total Quantity</div>
-                                        <div class="text-sm font-bold text-[#82C341] mt-1"
-                                             x-text="(Number(bomQuantityInput) || 0) + ' EA'"></div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="mt-3 px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-[10px] text-slate-600">
-                                Untuk <span class="font-semibold" x-text="bomMaterialType"></span>, Calculate BOM menggunakan quantity MTO.
-                                Perhitungan berat OD/wall thickness hanya digunakan untuk material Pipe.
-                            </div>
-                        </div>
-                    </template>
+                <div x-show="workflowStatus === 'REVISION_REQUIRED'" class="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
+                    <b><i class="fa-solid fa-triangle-exclamation mr-1"></i> Catatan Revisi Lead:</b>
+                    <div class="mt-1" x-text="allProjectsData[activeProject]?.meta?.revisionNotes || '-' "></div>
                 </div>
 
-                <!-- DATA TERPILIH -->
-                <div class="border border-slate-200 rounded-xl overflow-hidden">
-                    <div class="px-4 py-3 bg-slate-50 border-b border-slate-200">
-                        <h4 class="text-xs font-bold text-slate-700">Data MTO Terpilih</h4>
-                    </div>
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-[10px]">
-                            <thead class="bg-[#eaf0f6] text-slate-700">
+                <div class="border border-slate-200 rounded-xl overflow-hidden bom-detail-box">
+                    <div class="px-4 py-3 bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-700">Detail Perhitungan BOM / BQ</div>
+                    <div class="bom-detail-scroll custom-scrollbar">
+                        <table class="bom-detail-table text-[10px]">
+                            <colgroup>
+                                <col class="c-no"><col class="c-line"><col class="c-sheet"><col class="c-component"><col class="c-desc">
+                                <col class="c-qty"><col class="c-size"><col class="c-size"><col class="c-length"><col class="c-unit"><col class="c-inch">
+                            </colgroup>
+                            <thead>
                                 <tr>
-                                    <th class="px-3 py-2 text-left border-b border-slate-200">DESCRIPTION</th>
-                                    <th class="px-3 py-2 text-left border-b border-slate-200">MATERIAL</th>
-                                    <th class="px-3 py-2 text-left border-b border-slate-200">SIZE</th>
-                                    <th class="px-3 py-2 text-left border-b border-slate-200">SPEC</th>
-                                    <th class="px-3 py-2 text-center border-b border-slate-200">QTY</th>
+                                    <th>No</th>
+                                    <th>Line No.</th>
+                                    <th>Sheet</th>
+                                    <th>Component</th>
+                                    <th>Description</th>
+                                    <th>Qty</th>
+                                    <th>Size 1</th>
+                                    <th>Size 2</th>
+                                    <th>Length</th>
+                                    <th>Unit</th>
+                                    <th>Inch-Dia</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <template x-for="(item, index) in getBomFilteredGroups().slice(0, 5)" :key="index">
-                                    <tr class="border-b border-slate-200">
-                                        <td class="px-3 py-2" x-text="item.description"></td>
-                                        <td class="px-3 py-2" x-text="item.material"></td>
-                                        <td class="px-3 py-2" x-text="item.size"></td>
-                                        <td class="px-3 py-2" x-text="item.spec"></td>
-                                        <td class="px-3 py-2 text-center font-bold" x-text="item.quantity"></td>
+                                <template x-for="row in (allProjectsData[activeProject]?.meta?.bom?.details || [])" :key="row.no + '-' + row.sheet + '-' + row.lineNo">
+                                    <tr>
+                                        <td x-text="row.no"></td>
+                                        <td class="font-mono" x-text="row.lineNo"></td>
+                                        <td x-text="row.sheet"></td>
+                                        <td x-text="row.component"></td>
+                                        <td class="text-left" x-text="row.description || '-' "></td>
+                                        <td class="text-right" x-text="Number(row.qty).toFixed(2)"></td>
+                                        <td class="text-right" x-text="row.size1 || '-' "></td>
+                                        <td class="text-right" x-text="row.size2 || '-' "></td>
+                                        <td class="text-right" x-text="row.length || '-' "></td>
+                                        <td class="text-center" x-text="row.unit"></td>
+                                        <td class="text-right font-bold text-indigo-600" x-text="Number(row.inchDia).toFixed(2)"></td>
                                     </tr>
                                 </template>
-                                <tr x-show="getBomFilteredGroups().length === 0">
-                                    <td colspan="5" class="px-3 py-5 text-center text-slate-400">Tidak ada data yang sesuai.</td>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-4 border-t border-slate-200 flex items-center justify-between gap-2 shrink-0">
+                <span class="text-[10px] text-slate-500">Hasil BOM menjadi input Estimator. Nilai harga belum dihitung di tahap Engineer.</span>
+                <div class="flex gap-2">
+                    <button @click.stop.prevent="recalculateBOM()" type="button" class="px-4 py-2 bg-slate-100 border border-slate-200 text-slate-700 rounded-xl text-xs font-semibold hover:bg-slate-200 cursor-pointer">Hitung Ulang</button>
+                    <button @click="submitBOMToEstimator" class="px-4 py-2 bg-[#82C341] text-white rounded-xl text-xs font-semibold shadow">Kirim ke Estimator <i class="fa-solid fa-arrow-right ml-1"></i></button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL KALKULASI BOQ - ESTIMATOR -->
+    <div x-show="showBoqModal" x-cloak class="boq-modal-overlay fixed inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
+        <div class="bg-white border border-slate-200 rounded-2xl w-full max-w-7xl max-h-[94vh] shadow-2xl flex flex-col overflow-hidden">
+            <div class="p-5 border-b border-slate-200 flex items-center justify-between shrink-0">
+                <div><h3 class="text-sm font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-money-bill-wave text-indigo-600"></i> KALKULASI BIAYA BOQ</h3><p class="text-[10px] text-slate-500 mt-1">Estimator menerima hasil BOM Engineer lalu memasukkan harga satuan dan indirect cost.</p></div>
+                <button @click="showBoqModal = false" class="text-slate-400 hover:text-slate-800"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="p-5 overflow-y-auto custom-scrollbar space-y-4">
+                <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+                    <div class="bg-slate-50 border border-slate-200 rounded-xl p-3"><span class="text-[10px] text-slate-400 block">Total Item BOM</span><b class="text-lg text-slate-700" x-text="allProjectsData[activeProject]?.meta?.boq?.items?.length || 0"></b></div>
+                    <div class="bg-slate-50 border border-slate-200 rounded-xl p-3"><span class="text-[10px] text-slate-400 block">Level Harga</span><b class="text-sm text-indigo-600" x-text="activePriceLevel"></b></div>
+                    <div class="bg-slate-50 border border-slate-200 rounded-xl p-3"><span class="text-[10px] text-slate-400 block">Direct Cost</span><b class="text-lg text-slate-700" x-text="formatCurrency(allProjectsData[activeProject]?.meta?.boq?.directCost || 0)"></b></div>
+                    <div class="bg-slate-50 border border-slate-200 rounded-xl p-3"><span class="text-[10px] text-slate-400 block">Indirect Cost</span><b class="text-lg text-slate-700" x-text="formatCurrency(allProjectsData[activeProject]?.meta?.boq?.indirectCost || 0)"></b></div>
+                    <div class="bg-slate-50 border border-slate-200 rounded-xl p-3"><span class="text-[10px] text-slate-400 block">Total BOQ</span><b class="text-lg text-emerald-600" x-text="formatCurrency(allProjectsData[activeProject]?.meta?.boq?.totalCost || 0)"></b></div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div><label class="text-[10px] font-semibold text-slate-600">Level Harga</label><select x-model="activePriceLevel" class="mt-1 w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs"><option>Bawah</option><option>Menengah</option><option>Atas</option></select></div>
+                    <div><label class="text-[10px] font-semibold text-slate-600">Mata Uang</label><select x-model="boqCurrency" class="mt-1 w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs"><option value="USD">USD ($)</option><option value="IDR">IDR (Rp)</option></select></div>
+                    <div><label class="text-[10px] font-semibold text-slate-600">Indirect Cost</label><input type="number" min="0" step="0.01" :value="allProjectsData[activeProject]?.meta?.boq?.indirectCost || 0" @input="setIndirectCost($event.target.value)" class="mt-1 w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs"></div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-3">
+                        <span class="text-[10px] text-emerald-600 block">Kelompok Harga</span>
+                        <b class="text-lg text-emerald-700" x-text="allProjectsData[activeProject]?.meta?.boq?.priceGroups?.length || 0"></b>
+                        <span class="text-[9px] text-emerald-600 block">Estimator mengisi per kelompok</span>
+                    </div>
+                    <div class="bg-blue-50 border border-blue-200 rounded-xl p-3">
+                        <span class="text-[10px] text-blue-600 block">Harga Sudah Diisi</span>
+                        <b class="text-lg text-blue-700" x-text="getBOQPriceCoverage().priced"></b>
+                    </div>
+                    <div class="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                        <span class="text-[10px] text-amber-600 block">Belum Diisi</span>
+                        <b class="text-lg text-amber-700" x-text="getBOQPriceCoverage().unpriced"></b>
+                    </div>
+                </div>
+
+                <div class="border border-slate-200 rounded-xl overflow-hidden">
+                    <div class="px-4 py-3 bg-slate-50 border-b border-slate-200">
+                        <div class="text-xs font-bold">Harga BOQ — Per Kelompok Item</div>
+                        <div class="text-[10px] text-slate-500 mt-1">
+                            Isi Unit Price satu kali. Semua item BOM yang memiliki karakteristik harga yang sama akan otomatis menggunakan harga tersebut.
+                        </div>
+                    </div>
+                    <div class="max-h-[45vh] overflow-auto custom-scrollbar">
+                        <table class="boq-detail-table">
+                            <thead>
+                                <tr>
+                                    <th>No</th>
+                                    <th>Sheet</th>
+                                    <th>Component</th>
+                                    <th>Description</th>
+                                    <th>Size 1</th>
+                                    <th>Size 2</th>
+                                    <th>Unit</th>
+                                    <th>Jumlah Item</th>
+                                    <th>Total Qty</th>
+                                    <th>Unit Price</th>
+                                    <th>Total</th>
                                 </tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="(group, index) in (allProjectsData[activeProject]?.meta?.boq?.priceGroups || [])" :key="group.key">
+                                    <tr :class="Number(group.unitPrice || 0) > 0 ? '' : 'bg-amber-50'">
+                                        <td x-text="index + 1"></td>
+                                        <td x-text="group.sheet"></td>
+                                        <td x-text="group.component"></td>
+                                        <td :title="group.description" x-text="group.description"></td>
+                                        <td x-text="group.size1 ?? '-'"></td>
+                                        <td x-text="group.size2 ?? '-'"></td>
+                                        <td x-text="group.unit"></td>
+                                        <td x-text="group.itemCount"></td>
+                                        <td x-text="Number(group.qty || 0).toFixed(2)"></td>
+                                        <td>
+                                            <input type="number" min="0" step="0.01"
+                                                :value="group.unitPrice || 0"
+                                                @input="updateBOQPriceGroup(index, $event.target.value)"
+                                                class="boq-price-input"
+                                                placeholder="Masukkan harga">
+                                        </td>
+                                        <td x-text="formatCurrency((Number(group.qty || 0) * Number(group.unitPrice || 0)))"></td>
+                                    </tr>
+                                </template>
                             </tbody>
                         </table>
                     </div>
                 </div>
 
-                <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
-                    <button @click="showBoqModal = false" class="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg text-xs">Tutup</button>
-                    <template x-if="loginForm.role === 'Piping Engineer'">
-                        <button @click="submitMTOToEstimator(); showBoqModal = false" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded-lg text-xs shadow">
-                            <i class="fa-solid fa-paper-plane mr-1"></i> Simpan QTO & Kirim ke Estimator
-                        </button>
-                    </template>
-                    <button @click="exportBOQ" class="px-4 py-2 bg-[#82C341] text-white font-semibold rounded-lg text-xs shadow">
-                        <i class="fa-solid fa-file-export mr-1"></i> Export Quantity Take-Off
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- MODAL KALKULASI BIAYA BOQ - ESTIMATOR -->
-    <div x-show="showCostBoqModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
-        <div @click.stop class="bg-white border border-slate-200 rounded-2xl max-w-5xl w-full max-h-[92vh] overflow-y-auto shadow-2xl">
-            <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
-                <div>
-                    <h3 class="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
-                        <i class="fa-solid fa-calculator text-indigo-600"></i>
-                        Kalkulasi Biaya BOQ
-                    </h3>
-                    <p class="text-[10px] text-slate-500 mt-1">Estimator • Proyek <span class="font-semibold" x-text="activeProject"></span> • Sheet <span class="font-semibold" x-text="activeSheet"></span></p>
-                </div>
-                <button @click="showCostBoqModal = false" class="text-slate-400 hover:text-slate-800"><i class="fa-solid fa-xmark text-lg"></i></button>
-            </div>
-            <div class="p-6 space-y-4">
-                <div class="p-3 bg-indigo-50 border border-indigo-100 rounded-xl text-[11px] text-indigo-800 space-y-1">
-                    <div>Quantity <b>tidak dihitung ulang</b> oleh Estimator. Data diambil dari <b>Quantity Take-Off</b> yang dikirim Piping Engineer.</div>
-                    <div class="text-[10px] text-indigo-600">Sumber: <b x-text="qtoSourceSheet || activeSheet"></b> • Total QTO: <b x-text="qtoTotalQuantity + ' EA'"></b></div>
-                    <div>Estimator hanya mengisi <b>Unit Price</b> untuk menghasilkan Direct Cost. Harga tidak mengubah data MTO.</div>
-                </div>
-                <div class="overflow-x-auto border border-slate-200 rounded-xl">
-                    <table class="w-full text-[10px]">
-                        <thead class="bg-slate-100 text-slate-700">
-                            <tr>
-                                <th class="px-3 py-2 text-center border-b border-slate-200">NO</th>
-                                <th class="px-3 py-2 text-left border-b border-slate-200">DESCRIPTION</th>
-                                <th class="px-3 py-2 text-left border-b border-slate-200">MATERIAL</th>
-                                <th class="px-3 py-2 text-left border-b border-slate-200">SIZE</th>
-                                <th class="px-3 py-2 text-left border-b border-slate-200">SPEC</th>
-                                <th class="px-3 py-2 text-center border-b border-slate-200">QTY</th>
-                                <th class="px-3 py-2 text-right border-b border-slate-200">UNIT PRICE</th>
-                                <th class="px-3 py-2 text-right border-b border-slate-200">TOTAL</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <template x-for="(row,index) in costRows" :key="index">
-                                <tr class="border-b border-slate-200">
-                                    <td class="px-3 py-2 text-center" x-text="row.no"></td>
-                                    <td class="px-3 py-2" x-text="row.description"></td>
-                                    <td class="px-3 py-2" x-text="row.material"></td>
-                                    <td class="px-3 py-2" x-text="row.size"></td>
-                                    <td class="px-3 py-2" x-text="row.spec"></td>
-                                    <td class="px-3 py-2 text-center font-semibold" x-text="row.quantity + ' ' + row.unit"></td>
-                                    <td class="px-3 py-2 text-right">
-                                        <input type="number" min="0" step="0.01" :value="row.unitPrice" @input="updateCostRow(index, $event.target.value)" class="w-28 px-2 py-1.5 border border-slate-300 rounded-lg text-right text-[10px]">
-                                    </td>
-                                    <td class="px-3 py-2 text-right font-bold" x-text="(Number(row.total)||0).toLocaleString('id-ID')"></td>
+                <div class="border border-slate-200 rounded-xl overflow-hidden">
+                    <div class="px-4 py-3 bg-slate-50 border-b border-slate-200 text-xs font-bold">
+                        Detail BOM (641 item tetap tersedia)
+                    </div>
+                    <div class="max-h-[25vh] overflow-auto custom-scrollbar">
+                        <table class="boq-detail-table">
+                            <thead>
+                                <tr>
+                                    <th>No</th><th>Line No.</th><th>Sheet</th><th>Component</th><th>Description</th>
+                                    <th>Qty</th><th>Size 1</th><th>Size 2</th><th>Unit</th><th>Unit Price</th><th>Total</th>
                                 </tr>
-                            </template>
-                            <tr x-show="costRows.length === 0"><td colspan="8" class="px-3 py-8 text-center text-slate-400">Tidak ada data MTO.</td></tr>
-                        </tbody>
-                        <tfoot class="bg-emerald-50">
-                            <tr>
-                                <td colspan="7" class="px-3 py-3 text-right font-bold text-slate-700">TOTAL DIRECT COST</td>
-                                <td class="px-3 py-3 text-right font-bold text-emerald-700" x-text="costGrandTotal.toLocaleString('id-ID')"></td>
-                            </tr>
-                        </tfoot>
-                    </table>
+                            </thead>
+                            <tbody>
+                                <template x-for="(row, index) in (allProjectsData[activeProject]?.meta?.boq?.items || [])" :key="row.key">
+                                    <tr>
+                                        <td x-text="index + 1"></td>
+                                        <td class="font-mono" x-text="row.lineNo || '-'"></td>
+                                        <td x-text="row.sheet || '-'"></td>
+                                        <td x-text="row.component || '-'"></td>
+                                        <td x-text="row.description || '-'"></td>
+                                        <td x-text="Number(row.qty || 0).toFixed(2)"></td>
+                                        <td x-text="row.size1 ?? '-'"></td>
+                                        <td x-text="row.size2 ?? '-'"></td>
+                                        <td x-text="row.unit || '-'"></td>
+                                        <td x-text="formatCurrency(row.unitPrice || 0)"></td>
+                                        <td x-text="formatCurrency(row.totalPrice || 0)"></td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
-                <div>
-                    <label class="block text-[10px] font-semibold text-slate-700 mb-1">Catatan Estimator</label>
-                    <textarea x-model="costNotes" rows="2" class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs" placeholder="Catatan untuk Lead Estimator..."></textarea>
-                </div>
-                <div class="flex justify-end gap-2 pt-3 border-t border-slate-200">
-                    <button @click="showCostBoqModal = false" class="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg text-xs">Tutup</button>
-                    <button @click="submitCostToLead()" class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded-lg text-xs"><i class="fa-solid fa-paper-plane mr-1"></i> Kirim ke Lead</button>
-                </div>
+            </div>
+            <div class="p-4 border-t border-slate-200 flex items-center justify-end gap-2 shrink-0">
+                <button @click="showBoqModal = false" class="px-4 py-2 bg-slate-200 text-slate-700 rounded-xl text-xs">Tutup</button>
+                <button @click="submitBOQToLead" class="px-4 py-2 bg-indigo-600 text-white font-semibold rounded-xl text-xs shadow">Kirim BOQ ke Lead <i class="fa-solid fa-arrow-right ml-1"></i></button>
+                <button @click="exportBOQ" class="px-4 py-2 bg-[#82C341] text-white font-semibold rounded-xl text-xs shadow">Export BOQ</button>
             </div>
         </div>
     </div>
 
-    <!-- MODAL APPROVAL / REVIEW LEAD -->
-    <div x-show="showApproveModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4 py-6">
-        <div @click.stop class="bg-white border border-slate-200 rounded-2xl max-w-6xl w-full max-h-[94vh] overflow-y-auto shadow-2xl">
-            <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between sticky top-0 bg-white z-10">
+    <!-- MODAL APPROVAL / REVIEW -->
+    <div x-show="showApproveModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-3 py-4">
+        <div class="bg-white border border-slate-200 rounded-2xl w-full max-w-6xl max-h-[92vh] shadow-2xl overflow-hidden flex flex-col" @click.stop>
+            <div class="px-5 py-4 border-b border-slate-200 bg-white flex items-center justify-between shrink-0">
                 <div>
-                    <h3 class="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                    <h3 class="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center space-x-2">
                         <i class="fa-solid fa-check-double text-sky-600"></i>
-                        REVIEW & APPROVAL BOQ
+                        <span>REVIEW &amp; APPROVAL LAPORAN PROYEK</span>
                     </h3>
                     <p class="text-[10px] text-slate-500 mt-1">
-                        Lead Estimator • Proyek <span class="font-semibold" x-text="activeProject"></span>
+                        Lead hanya mereview item BOM yang <b>Line Number MTO-nya ditemukan di Line List</b>.
                     </p>
                 </div>
-                <button @click="showApproveModal = false" class="text-slate-400 hover:text-slate-800">
-                    <i class="fa-solid fa-xmark text-lg"></i>
+                <button @click="showApproveModal = false" class="w-8 h-8 rounded-lg text-slate-400 hover:text-slate-800 hover:bg-slate-100">
+                    <i class="fa-solid fa-xmark text-sm"></i>
                 </button>
             </div>
 
-            <div class="p-6 space-y-5">
-                <!-- STATUS -->
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
-                    <div class="p-3 bg-sky-50 border border-sky-200 rounded-xl">
-                        <div class="text-[10px] text-sky-600 font-semibold uppercase">Status</div>
-                        <div class="text-sm font-bold text-sky-800 mt-1">Menunggu Review Lead</div>
-                    </div>
+            <div class="p-5 space-y-4 overflow-y-auto custom-scrollbar">
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                        <div class="text-[10px] text-slate-500 font-semibold uppercase">Sumber Quantity</div>
-                        <div class="text-sm font-bold text-slate-800 mt-1">Engineer / QTO</div>
-                    </div>
-                    <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                        <div class="text-[10px] text-slate-500 font-semibold uppercase">Total Quantity</div>
-                        <div class="text-sm font-bold text-slate-800 mt-1" x-text="leadReviewTotalQuantity + ' EA'"></div>
+                        <div class="text-[9px] uppercase font-bold text-slate-400">Total MTO</div>
+                        <div class="text-lg font-bold text-slate-800" x-text="(allProjectsData[activeProject]?.meta?.bom?.totalMtoItems ?? 0)"></div>
                     </div>
                     <div class="p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
-                        <div class="text-[10px] text-emerald-600 font-semibold uppercase">Total BOQ</div>
-                        <div class="text-sm font-bold text-emerald-700 mt-1">
-                            <span x-text="leadReviewCurrencyLabel"></span>
-                            <span x-text="formatMoney(leadReviewTotalCost)"></span>
-                        </div>
+                        <div class="text-[9px] uppercase font-bold text-emerald-600">MTO Match Line List</div>
+                        <div class="text-lg font-bold text-emerald-700" x-text="(allProjectsData[activeProject]?.meta?.bom?.totalItems ?? 0)"></div>
+                        <div class="text-[9px] text-emerald-600">Masuk perhitungan BOM</div>
+                    </div>
+                    <div class="p-3 bg-rose-50 border border-rose-200 rounded-xl">
+                        <div class="text-[9px] uppercase font-bold text-rose-600">MTO Tidak Match</div>
+                        <div class="text-lg font-bold text-rose-700" x-text="(allProjectsData[activeProject]?.meta?.bom?.excludedNoLine ?? 0)"></div>
+                        <div class="text-[9px] text-rose-600">Tidak dihitung</div>
+                    </div>
+                    <div class="p-3 bg-sky-50 border border-sky-200 rounded-xl">
+                        <div class="text-[9px] uppercase font-bold text-sky-600">Total BOQ</div>
+                        <div class="text-lg font-bold text-sky-700" x-text="formatCurrency(allProjectsData[activeProject]?.meta?.boq?.totalCost || 0)"></div>
                     </div>
                 </div>
 
-                <!-- DETAIL QTO + COST -->
-                <div class="border border-slate-200 rounded-xl overflow-hidden">
-                    <div class="px-4 py-3 bg-slate-50 border-b border-slate-200">
-                        <div class="text-xs font-bold text-slate-800">Detail Quantity Take-Off & BOQ Cost</div>
-                        <div class="text-[10px] text-slate-500 mt-1">
-                            Quantity berasal dari Engineer. Unit Price dan Total berasal dari Estimator.
-                        </div>
-                    </div>
+                <div class="p-3 bg-blue-50 border border-blue-200 rounded-xl text-[10px] text-blue-800">
+                    <b>Aturan Supervisor:</b> jika Line Number ada di <b>MTO</b> dan juga ada di <b>Line List</b>, item dihitung. Jika Line Number hanya ada di MTO dan tidak ditemukan di Line List, item <b>tidak dihitung dan tidak masuk BOM/BOQ</b>.
+                </div>
 
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-[10px]">
-                            <thead class="bg-slate-100 text-slate-700">
+                <div class="border border-slate-200 rounded-xl overflow-hidden">
+                    <div class="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                        <div>
+                            <h4 class="text-xs font-bold text-slate-800">Detail BOM / BOQ yang Dihitung</h4>
+                            <p class="text-[9px] text-slate-500 mt-0.5">Hanya baris yang lolos pencocokan MTO ↔ Line List.</p>
+                        </div>
+                        <span class="text-[9px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-full" x-text="(allProjectsData[activeProject]?.meta?.boq?.items?.length || 0) + ' item'" ></span>
+                    </div>
+                    <div class="max-h-[38vh] overflow-auto custom-scrollbar">
+                        <table class="w-full text-[10px] border-collapse">
+                            <thead class="sticky top-0 bg-slate-100 z-10">
                                 <tr>
-                                    <th class="px-3 py-2 text-center border-b border-slate-200">NO</th>
-                                    <th class="px-3 py-2 text-left border-b border-slate-200">DESCRIPTION</th>
-                                    <th class="px-3 py-2 text-left border-b border-slate-200">MATERIAL</th>
-                                    <th class="px-3 py-2 text-left border-b border-slate-200">SIZE</th>
-                                    <th class="px-3 py-2 text-left border-b border-slate-200">SPEC</th>
-                                    <th class="px-3 py-2 text-center border-b border-slate-200">QTY</th>
-                                    <th class="px-3 py-2 text-right border-b border-slate-200">UNIT PRICE</th>
-                                    <th class="px-3 py-2 text-right border-b border-slate-200">TOTAL</th>
+                                    <th class="px-3 py-2 border-b border-r border-slate-200 text-left">No</th>
+                                    <th class="px-3 py-2 border-b border-r border-slate-200 text-left">Line No.</th>
+                                    <th class="px-3 py-2 border-b border-r border-slate-200 text-left">Sheet</th>
+                                    <th class="px-3 py-2 border-b border-r border-slate-200 text-left">Component</th>
+                                    <th class="px-3 py-2 border-b border-r border-slate-200 text-left min-w-[280px]">Description</th>
+                                    <th class="px-3 py-2 border-b border-r border-slate-200 text-right">Qty</th>
+                                    <th class="px-3 py-2 border-b border-slate-200 text-right">Inch-Dia</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <template x-for="(row,index) in leadReviewRows" :key="index">
-                                    <tr class="border-b border-slate-200 hover:bg-slate-50">
-                                        <td class="px-3 py-2 text-center" x-text="row.no || (index + 1)"></td>
-                                        <td class="px-3 py-2 font-medium" x-text="row.description"></td>
-                                        <td class="px-3 py-2" x-text="row.material"></td>
-                                        <td class="px-3 py-2" x-text="row.size"></td>
-                                        <td class="px-3 py-2" x-text="row.spec"></td>
-                                        <td class="px-3 py-2 text-center font-semibold" x-text="row.quantity + ' ' + (row.unit || 'EA')"></td>
-                                        <td class="px-3 py-2 text-right" x-text="formatMoney(row.unitPrice)"></td>
-                                        <td class="px-3 py-2 text-right font-bold" x-text="formatMoney(row.total)"></td>
+                                <template x-for="(item, index) in (allProjectsData[activeProject]?.meta?.boq?.items || [])" :key="'lead-review-' + index">
+                                    <tr class="hover:bg-slate-50">
+                                        <td class="px-3 py-2 border-b border-r border-slate-100" x-text="index + 1"></td>
+                                        <td class="px-3 py-2 border-b border-r border-slate-100 font-mono font-semibold text-slate-700 whitespace-nowrap" x-text="item.lineNo || '-'" ></td>
+                                        <td class="px-3 py-2 border-b border-r border-slate-100" x-text="item.sheet || '-'" ></td>
+                                        <td class="px-3 py-2 border-b border-r border-slate-100" x-text="item.component || '-'" ></td>
+                                        <td class="px-3 py-2 border-b border-r border-slate-100" x-text="item.description || '-'" ></td>
+                                        <td class="px-3 py-2 border-b border-r border-slate-100 text-right" x-text="Number(item.qty || 0).toFixed(2)" ></td>
+                                        <td class="px-3 py-2 border-b border-slate-100 text-right font-semibold" x-text="Number(item.inchDia || 0).toFixed(2)" ></td>
                                     </tr>
                                 </template>
-                                <tr x-show="leadReviewRows.length === 0">
-                                    <td colspan="8" class="px-3 py-8 text-center text-slate-400">
-                                        Data BOQ dari Estimator belum tersedia.
-                                    </td>
+                                <tr x-show="!(allProjectsData[activeProject]?.meta?.boq?.items?.length)">
+                                    <td colspan="7" class="px-4 py-8 text-center text-slate-400">Belum ada item BOQ yang match dengan Line List.</td>
                                 </tr>
                             </tbody>
-                            <tfoot class="bg-emerald-50">
-                                <tr>
-                                    <td colspan="5" class="px-3 py-3 text-right font-bold text-slate-700">TOTAL</td>
-                                    <td class="px-3 py-3 text-center font-bold text-slate-800" x-text="leadReviewTotalQuantity + ' EA'"></td>
-                                    <td class="px-3 py-3"></td>
-                                    <td class="px-3 py-3 text-right font-bold text-emerald-700" x-text="formatMoney(leadReviewTotalCost)"></td>
-                                </tr>
-                            </tfoot>
                         </table>
                     </div>
                 </div>
 
-                <!-- CATATAN ESTIMATOR -->
-                <div class="p-3 bg-indigo-50 border border-indigo-100 rounded-xl">
-                    <div class="text-[10px] font-bold text-indigo-800 uppercase">Catatan Estimator</div>
-                    <div class="text-[11px] text-indigo-700 mt-1" x-text="costNotes || 'Tidak ada catatan dari Estimator.'"></div>
-                </div>
-
-                <!-- KEPUTUSAN -->
-                <div class="space-y-2">
-                    <label class="block text-xs font-bold text-slate-700">Catatan / Alasan Review Lead</label>
-                    <textarea id="reviewer-notes-textarea" x-model="approvalNote"
-                        class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-500"
-                        rows="3" placeholder="Berikan catatan, instruksi, atau koreksi untuk Estimator..."></textarea>
+                <div class="space-y-1 pt-1">
+                    <label class="block text-[11px] font-bold text-slate-700">Catatan / Alasan Revisi:</label>
+                    <textarea id="reviewer-notes-textarea" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-sky-600" rows="3" placeholder="Berikan catatan, instruksi, atau koreksi untuk estimator..."></textarea>
                 </div>
             </div>
 
-            <div class="px-6 py-4 border-t border-slate-200 bg-white flex items-center justify-between gap-3 flex-wrap sticky bottom-0 z-10">
-                <div class="text-[10px] text-slate-500">
-                    Pastikan quantity dan harga sudah diperiksa sebelum approval.
-                </div>
-                <div class="flex items-center justify-end gap-2 flex-wrap">
-                    <button @click="showApproveModal = false" class="px-3.5 py-2 bg-slate-200 text-slate-700 font-semibold rounded-xl text-xs hover:bg-slate-300 transition">Batal</button>
-                    <button @click="handleMintaRevisi" class="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-xl text-xs transition">
-                        <i class="fa-solid fa-rotate-left mr-1"></i> Minta Revisi
-                    </button>
-                    <button @click="rejectData" class="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-xl text-xs transition">
-                        <i class="fa-solid fa-xmark mr-1"></i> Reject
-                    </button>
-                    <button @click="confirmApprove" class="px-3.5 py-2 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded-xl text-xs shadow transition">
-                        <i class="fa-solid fa-check mr-1"></i> Approve BOQ
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- MODAL LAPORAN FINAL BOQ - TERLIHAT OLEH ENGINEER SETELAH APPROVE -->
-    <div x-show="showFinalReportModal" x-cloak class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
-        <div @click.stop class="bg-white border border-slate-200 rounded-2xl max-w-6xl w-full max-h-[92vh] overflow-y-auto shadow-2xl">
-            <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
-                <div>
-                    <h3 class="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
-                        <i class="fa-solid fa-file-circle-check text-emerald-600"></i>
-                        Laporan BOQ Final
-                    </h3>
-                    <p class="text-[10px] text-slate-500 mt-1">Hasil akhir Quantity Take-Off + Biaya BOQ • Proyek <span class="font-semibold" x-text="activeProject"></span></p>
-                </div>
-                <button @click="showFinalReportModal = false" class="text-slate-400 hover:text-slate-800"><i class="fa-solid fa-xmark text-lg"></i></button>
-            </div>
-
-            <div class="p-6 space-y-4">
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
-                    <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                        <div class="text-[10px] text-slate-500">PROJECT</div>
-                        <div class="text-sm font-bold text-slate-800" x-text="activeProject"></div>
-                    </div>
-                    <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                        <div class="text-[10px] text-slate-500">STATUS</div>
-                        <div class="text-sm font-bold text-emerald-600">APPROVED</div>
-                    </div>
-                    <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                        <div class="text-[10px] text-slate-500">APPROVED BY</div>
-                        <div class="text-sm font-bold text-slate-800" x-text="finalReportApprovedBy"></div>
-                    </div>
-                    <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                        <div class="text-[10px] text-slate-500">APPROVED AT</div>
-                        <div class="text-[11px] font-semibold text-slate-800" x-text="finalReportApprovedAt"></div>
-                    </div>
-                </div>
-
-                <div class="overflow-x-auto border border-slate-200 rounded-xl">
-                    <table class="w-full text-[10px]">
-                        <thead class="bg-slate-100 text-slate-700">
-                            <tr>
-                                <th class="px-3 py-2 text-center border-b border-slate-200">NO</th>
-                                <th class="px-3 py-2 text-left border-b border-slate-200">DESCRIPTION</th>
-                                <th class="px-3 py-2 text-left border-b border-slate-200">MATERIAL</th>
-                                <th class="px-3 py-2 text-left border-b border-slate-200">SIZE</th>
-                                <th class="px-3 py-2 text-left border-b border-slate-200">SPEC</th>
-                                <th class="px-3 py-2 text-center border-b border-slate-200">QUANTITY</th>
-                                <th class="px-3 py-2 text-right border-b border-slate-200">UNIT PRICE</th>
-                                <th class="px-3 py-2 text-right border-b border-slate-200">TOTAL</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <template x-for="(row,index) in costRows" :key="'final-'+index">
-                                <tr class="border-b border-slate-200">
-                                    <td class="px-3 py-2 text-center" x-text="row.no"></td>
-                                    <td class="px-3 py-2" x-text="row.description"></td>
-                                    <td class="px-3 py-2" x-text="row.material"></td>
-                                    <td class="px-3 py-2" x-text="row.size"></td>
-                                    <td class="px-3 py-2" x-text="row.spec"></td>
-                                    <td class="px-3 py-2 text-center font-semibold" x-text="row.quantity + ' ' + (row.unit || 'EA')"></td>
-                                    <td class="px-3 py-2 text-right" x-text="Number(row.unitPrice || 0).toLocaleString('id-ID')"></td>
-                                    <td class="px-3 py-2 text-right font-bold" x-text="Number(row.total || 0).toLocaleString('id-ID')"></td>
-                                </tr>
-                            </template>
-                        </tbody>
-                        <tfoot class="bg-emerald-50">
-                            <tr>
-                                <td colspan="7" class="px-3 py-3 text-right font-bold text-slate-700">TOTAL BOQ</td>
-                                <td class="px-3 py-3 text-right font-bold text-emerald-700" x-text="finalReportTotal.toLocaleString('id-ID')"></td>
-                            </tr>
-                        </tfoot>
-                    </table>
-                </div>
-
-                <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-slate-600">
-                    <div><b>Catatan Lead:</b> <span x-text="latestApproval?.notes || 'Laporan disetujui oleh Lead Estimator.'"></span></div>
-                    <div class="mt-1 text-[10px] text-slate-400">Quantity berasal dari QTO Engineer dan harga berasal dari kalkulasi BOQ Estimator. Engineer hanya melihat hasil final dan tidak dapat mengubah harga dari laporan ini.</div>
-                </div>
-
-                <div class="flex justify-end gap-2 pt-3 border-t border-slate-200">
-                    <button @click="showFinalReportModal = false" class="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg text-xs">Tutup</button>
-                    <button @click="exportFinalReport()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg text-xs">
-                        <i class="fa-solid fa-file-pdf mr-1"></i> Export / Print PDF
-                    </button>
-                </div>
+            <div class="px-5 py-4 border-t border-slate-200 bg-white flex items-center justify-end space-x-2 flex-wrap gap-2 shrink-0">
+                <button @click="showApproveModal = false" class="px-3.5 py-2 bg-slate-200 text-slate-700 font-semibold rounded-xl text-xs hover:bg-slate-300 transition">Batal</button>
+                <button @click="handleMintaRevisi" class="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-xl text-xs transition">Minta Revisi</button>
+                <button @click="rejectData" class="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-xl text-xs transition">Reject</button>
+                <button @click="confirmApprove" class="px-3.5 py-2 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded-xl text-xs shadow transition">Approve</button>
             </div>
         </div>
     </div>
