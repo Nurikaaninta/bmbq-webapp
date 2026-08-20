@@ -203,11 +203,41 @@ function appData() {
             this.loadProjectMetaStorage();
             this.loadTableStorage();
 
+            // DATA DEMO PROJECT 3000
+            // Dijalankan SETELAH membaca localStorage supaya data yang sudah
+            // diimport pengguna tetap diprioritaskan. Hanya sheet kosong yang
+            // akan diisi dari bundle data awal. Import Excel tetap tersedia.
+            this.seedProject3000Data();
+
             this.normalizeAllProjectsData();
             this.loadBomBoqStorage();
             this.refreshSheetList();
             this.loadApprovalHistory();
             this.saveStorage();
+        },
+
+        seedProject3000Data() {
+            const seed = window.BMBQ_SEED_DATA;
+            if (!seed || typeof seed !== 'object') return;
+
+            const project = this.allProjectsData?.['PRJ-3000'];
+            if (!project) return;
+
+            // Hanya mengisi data awal pada project yang benar-benar belum
+            // mempunyai data tersimpan. Data hasil Import Excel pengguna
+            // tidak ditimpa.
+            Object.entries(seed).forEach(([sheetName, rows]) => {
+                if (!this.sheets.includes(sheetName)) this.sheets.push(sheetName);
+
+                const existing = Array.isArray(project[sheetName]) ? project[sheetName] : [];
+                if (existing.length === 0 && Array.isArray(rows) && rows.length > 0) {
+                    project[sheetName] = JSON.parse(JSON.stringify(rows));
+                }
+            });
+
+            project.meta.projectCode = 'PRJ-3000';
+            project.meta.projectName = 'Piping & Equipment';
+            project.meta.description = 'Project 3000 - data MTO/Fitting/Valve, SP Items, Line List, dan Pipe Support';
         },
 
         // ==========================================================
@@ -671,11 +701,11 @@ function appData() {
             }
             this.saveBomBoqStorage();
 
-            Object.entries(this.allProjectsData || {}).forEach(([projectKey, project]) => {
-                Object.keys(project || {}).forEach(sheetName => {
-                    if (sheetName !== 'meta') this.saveTableStorage(projectKey, sheetName);
-                });
-            });
+            // Tabel besar tidak disalin ulang seluruhnya ke localStorage setiap
+            // saveStorage(). Seed data Project 3000 tetap tersedia dari seed-data.js.
+            // Operasi edit/import menyimpan sheet yang benar-benar berubah melalui
+            // saveTableStorage(projectKey, sheetName), sehingga data besar tidak
+            // memenuhi quota localStorage.
         },
 
         switchProject() {
