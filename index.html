@@ -1065,7 +1065,7 @@
                     <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-3">
                         <span class="text-[10px] text-emerald-600 block">Kelompok Harga</span>
                         <b class="text-lg text-emerald-700" x-text="allProjectsData[activeProject]?.meta?.boq?.priceGroups?.length || 0"></b>
-                        <span class="text-[9px] text-emerald-600 block">Estimator mengisi per kelompok</span>
+                        <span class="text-[9px] text-emerald-600 block">Harga diisi per jenis item</span>
                     </div>
                     <div class="bg-blue-50 border border-blue-200 rounded-xl p-3">
                         <span class="text-[10px] text-blue-600 block">Harga Sudah Diisi</span>
@@ -1077,62 +1077,91 @@
                     </div>
                 </div>
 
-                <div class="border border-slate-200 rounded-xl overflow-hidden">
-                    <div class="px-4 py-3 bg-slate-50 border-b border-slate-200">
-                        <div class="text-xs font-bold">Harga BOQ — Per Kelompok Item</div>
-                        <div class="text-[10px] text-slate-500 mt-1">
-                            Isi Unit Price satu kali. Semua item BOM yang memiliki karakteristik harga yang sama akan otomatis menggunakan harga tersebut.
+                <div class="border border-slate-200 rounded-xl overflow-hidden boq-price-workspace">
+                    <div class="px-4 py-3 bg-slate-50 border-b border-slate-200 sticky top-0 z-20">
+                        <div class="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                                <div class="text-xs font-bold">Harga BOQ — Per Kelompok Item</div>
+                                <div class="text-[10px] text-slate-500 mt-1">Isi Unit Price satu kali per karakteristik item. Item dengan karakteristik sama memakai harga yang sama.</div>
+                            </div>
+                            <div class="flex flex-wrap gap-2">
+                                <button type="button" @click="createPriceMasterTemplate()" class="px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-700 text-[10px] font-semibold hover:bg-slate-50">Template Harga</button>
+                                <label class="px-3 py-2 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 text-[10px] font-semibold cursor-pointer hover:bg-indigo-100">Import Harga<input type="file" accept=".csv,text/csv" class="hidden" @change="importBOQPriceMasterFile($event)"></label>
+                                <button type="button" @click="applyBOQPriceMaster()" class="px-3 py-2 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 text-[10px] font-semibold hover:bg-emerald-100">Terapkan Harga</button>
+                            </div>
+                        </div>
+                        <div class="mt-3 grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-2">
+                            <div class="relative">
+                                <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[10px]"></i>
+                                <input x-model="boqPriceSearch" @input="resetBOQPricePage()" type="text" placeholder="Cari component, description, sheet..." class="w-full pl-8 pr-3 py-2 border border-slate-200 rounded-lg text-[10px] bg-white outline-none focus:border-indigo-400">
+                            </div>
+                            <select x-model="boqPriceFilter" @change="resetBOQPricePage()" class="px-3 py-2 border border-slate-200 rounded-lg text-[10px] bg-white">
+                                <option value="all">Semua Harga</option>
+                                <option value="unpriced">Belum Diisi</option>
+                                <option value="priced">Sudah Diisi</option>
+                            </select>
+                            <select x-model.number="boqPricePageSize" @change="resetBOQPricePage()" class="px-3 py-2 border border-slate-200 rounded-lg text-[10px] bg-white">
+                                <option :value="10">10 / halaman</option>
+                                <option :value="20">20 / halaman</option>
+                                <option :value="40">40 / halaman</option>
+                            </select>
+                        </div>
+                        <div class="mt-2 p-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[10px]">
+                            <b>Price Master:</b> import harga perusahaan satu kali. Sistem tidak mengarang harga; harga yang cocok akan otomatis digunakan pada kelompok BOM.
                         </div>
                     </div>
-                    <div class="max-h-[45vh] overflow-auto custom-scrollbar">
-                        <table class="boq-detail-table">
+                    <div class="boq-price-table-scroll overflow-auto custom-scrollbar">
+                        <table class="boq-price-table">
                             <thead>
                                 <tr>
-                                    <th>No</th>
-                                    <th>Sheet</th>
+                                    <th class="w-no">No</th>
+                                    <th>Item / Sheet</th>
                                     <th>Component</th>
-                                    <th>Description</th>
-                                    <th>Size 1</th>
-                                    <th>Size 2</th>
-                                    <th>Unit</th>
-                                    <th>Jumlah Item</th>
-                                    <th>Total Qty</th>
-                                    <th>Unit Price</th>
-                                    <th>Total</th>
+                                    <th class="w-desc">Description</th>
+                                    <th class="w-size">Size</th>
+                                    <th class="w-qty">Qty</th>
+                                    <th class="w-price">Unit Price</th>
+                                    <th class="w-total">Total</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <template x-for="(group, index) in (allProjectsData[activeProject]?.meta?.boq?.priceGroups || [])" :key="group.key">
+                                <template x-for="(group, localIndex) in pagedBOQPriceGroups" :key="group.key">
                                     <tr :class="Number(group.unitPrice || 0) > 0 ? '' : 'bg-amber-50'">
-                                        <td x-text="index + 1"></td>
-                                        <td x-text="group.sheet"></td>
-                                        <td x-text="group.component"></td>
-                                        <td :title="group.description" x-text="group.description"></td>
-                                        <td x-text="group.size1 ?? '-'"></td>
-                                        <td x-text="group.size2 ?? '-'"></td>
-                                        <td x-text="group.unit"></td>
-                                        <td x-text="group.itemCount"></td>
-                                        <td x-text="Number(group.qty || 0).toFixed(2)"></td>
+                                        <td class="text-center" x-text="((boqPricePage - 1) * boqPricePageSize) + localIndex + 1"></td>
                                         <td>
-                                            <input type="number" min="0" step="0.01"
-                                                :value="group.unitPrice || 0"
-                                                @input="updateBOQPriceGroup(index, $event.target.value)"
-                                                class="boq-price-input"
-                                                placeholder="Masukkan harga">
+                                            <div class="font-semibold truncate" :title="group.sheet" x-text="group.sheet"></div>
+                                            <div class="text-[9px] text-slate-400" x-text="group.itemCount + ' item'"></div>
                                         </td>
-                                        <td x-text="formatCurrency((Number(group.qty || 0) * Number(group.unitPrice || 0)))"></td>
+                                        <td class="truncate" :title="group.component" x-text="group.component"></td>
+                                        <td class="w-desc truncate" :title="group.description" x-text="group.description"></td>
+                                        <td class="w-size" x-text="(group.size1 ?? '-') + (group.size2 != null && group.size2 !== '' ? ' / ' + group.size2 : '')"></td>
+                                        <td class="w-qty text-right" x-text="Number(group.qty || 0).toFixed(2) + ' ' + (group.unit || '')"></td>
+                                        <td class="w-price sticky-price-cell">
+                                            <input type="number" min="0" step="0.01" :value="group.unitPrice || 0" @input="updateBOQPriceGroupByKey(group.key, $event.target.value)" class="boq-price-input" placeholder="0">
+                                        </td>
+                                        <td class="w-total text-right font-bold" x-text="formatCurrency((Number(group.qty || 0) * Number(group.unitPrice || 0)))"></td>
                                     </tr>
                                 </template>
+                                <tr x-show="filteredBOQPriceGroups.length === 0">
+                                    <td colspan="8" class="text-center py-8 text-slate-400 text-[11px]">Tidak ada kelompok yang sesuai filter.</td>
+                                </tr>
                             </tbody>
                         </table>
                     </div>
+                    <div class="px-3 py-2 bg-white border-t border-slate-200 flex items-center justify-between gap-2">
+                        <span class="text-[10px] text-slate-500" x-text="`${filteredBOQPriceGroups.length} kelompok ditemukan • Halaman ${boqPricePage} / ${totalBOQPricePages}`"></span>
+                        <div class="flex gap-1">
+                            <button type="button" @click="prevBOQPricePage()" :disabled="boqPricePage <= 1" class="px-3 py-1.5 rounded-lg border border-slate-200 text-[10px] disabled:opacity-40">Prev</button>
+                            <button type="button" @click="nextBOQPricePage()" :disabled="boqPricePage >= totalBOQPricePages" class="px-3 py-1.5 rounded-lg border border-slate-200 text-[10px] disabled:opacity-40">Next</button>
+                        </div>
+                    </div>
                 </div>
 
-                <div class="border border-slate-200 rounded-xl overflow-hidden">
-                    <div class="px-4 py-3 bg-slate-50 border-b border-slate-200 text-xs font-bold">
-                        Detail BOM (641 item tetap tersedia)
-                    </div>
-                    <div class="max-h-[25vh] overflow-auto custom-scrollbar">
+                <details class="border border-slate-200 rounded-xl overflow-hidden bg-white">
+                    <summary class="px-4 py-3 bg-slate-50 border-b border-slate-200 text-xs font-bold cursor-pointer select-none">
+                        Detail BOM (<span x-text="allProjectsData[activeProject]?.meta?.boq?.items?.length || 0"></span> item tersedia) — klik untuk melihat
+                    </summary>
+                    <div class="max-h-[24vh] overflow-auto custom-scrollbar">
                         <table class="boq-detail-table">
                             <thead>
                                 <tr>
@@ -1159,7 +1188,7 @@
                             </tbody>
                         </table>
                     </div>
-                </div>
+                </details>
             </div>
             <div class="p-4 border-t border-slate-200 flex items-center justify-end gap-2 shrink-0">
                 <button @click="showBoqModal = false" class="px-4 py-2 bg-slate-200 text-slate-700 rounded-xl text-xs">Tutup</button>
@@ -1170,7 +1199,7 @@
     </div>
 
     <!-- MODAL APPROVAL / REVIEW -->
-    <div x-show="showApproveModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-3 py-4">
+    <div x-show="showApproveModal" x-cloak class="lead-approval-modal fixed inset-0 z-[2147483647] flex items-center justify-center bg-black/50 backdrop-blur-sm px-3 py-4">
         <div class="bg-white border border-slate-200 rounded-2xl w-full max-w-6xl max-h-[92vh] shadow-2xl overflow-hidden flex flex-col" @click.stop>
             <div class="px-5 py-4 border-b border-slate-200 bg-white flex items-center justify-between shrink-0">
                 <div>
@@ -1590,5 +1619,29 @@
     </script>
     <script src="seed-data.js"></script>
     <script src="script.js?v=11"></script>
+
+<script>
+/*
+ * BOQ APP STARTUP GUARD
+ * Jangan pernah membuka modal Review & Approval sebelum user login.
+ * Modal tetap dapat dibuka normal setelah role Lead Estimator terautentikasi.
+ */
+document.addEventListener('alpine:init', () => {
+    const original = window.__boqApprovalLoginGuardInstalled;
+    if (original) return;
+    window.__boqApprovalLoginGuardInstalled = true;
+});
+document.addEventListener('DOMContentLoaded', () => {
+    // Bersihkan flag UI modal yang mungkin tersimpan/terbawa dari sesi sebelumnya.
+    // Tidak menghapus data proyek, BOQ, atau akun login.
+    try {
+        const keys = Object.keys(localStorage);
+        keys.forEach((key) => {
+            if (/showApproveModal|approvalModal/i.test(key)) localStorage.removeItem(key);
+        });
+    } catch (e) {}
+});
+</script>
+
 </body>
 </html>

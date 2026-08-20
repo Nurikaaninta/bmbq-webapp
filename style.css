@@ -196,13 +196,11 @@ aside,
     min-height: 0 !important;
     max-width: 100% !important;
     overflow: hidden !important;
-    display: flex !important;
     flex-direction: column !important;
 }
 
 /* Card tabel: kolom flex, tidak pernah melebarkan halaman. */
 .workspace-table-card {
-    display: flex !important;
     flex-direction: column !important;
     flex: 1 1 auto !important;
     min-height: 0 !important;
@@ -466,7 +464,6 @@ aside,
    ========================================================== */
 
 .excel-table th .filter-header-content {
-    display: flex !important;
     align-items: center !important;
     justify-content: center !important;
     gap: 7px !important;
@@ -529,7 +526,6 @@ aside,
 .column-filter-popup-header {
     min-height: 46px !important;
     padding: 9px 10px !important;
-    display: flex !important;
     align-items: center !important;
     justify-content: space-between !important;
     gap: 10px !important;
@@ -571,7 +567,6 @@ aside,
 .column-filter-search {
     margin: 9px 10px 6px !important;
     height: 30px !important;
-    display: flex !important;
     align-items: center !important;
     gap: 7px !important;
     padding: 0 8px !important;
@@ -597,7 +592,6 @@ aside,
 
 .column-filter-actions {
     padding: 4px 10px 7px !important;
-    display: flex !important;
     align-items: center !important;
     justify-content: space-between !important;
     gap: 8px !important;
@@ -605,7 +599,6 @@ aside,
 }
 
 .column-filter-check-all {
-    display: flex !important;
     align-items: center !important;
     gap: 7px !important;
     cursor: pointer !important;
@@ -650,7 +643,6 @@ aside,
 .column-filter-option {
     min-height: 27px !important;
     padding: 4px 7px !important;
-    display: flex !important;
     align-items: center !important;
     gap: 8px !important;
     border-radius: 4px !important;
@@ -685,7 +677,6 @@ aside,
 .column-filter-footer {
     min-height: 48px !important;
     padding: 8px 10px !important;
-    display: flex !important;
     align-items: center !important;
     justify-content: space-between !important;
     gap: 8px !important;
@@ -694,7 +685,6 @@ aside,
 }
 
 .column-filter-footer-right {
-    display: flex !important;
     align-items: center !important;
     gap: 6px !important;
 }
@@ -1042,4 +1032,154 @@ aside,
 .boq-modal-overlay .custom-scrollbar::-webkit-scrollbar-thumb {
     background: #94a3b8 !important;
     border-radius: 8px !important;
+}
+
+
+/* ==========================================================
+   LEAD APPROVAL / REVIEW MODAL
+   Fix: modal sebelumnya berada di dalam containing block utama,
+   sehingga sisi kiri tertutup sidebar. Teleport ke <body> + fixed
+   membuat modal benar-benar memakai seluruh viewport.
+   ========================================================== */
+.lead-approval-modal {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    z-index: 2147483647 !important;
+    align-items: center !important;
+    justify-content: center !important;
+    box-sizing: border-box !important;
+    padding: 16px 12px !important;
+}
+
+.lead-approval-modal > div {
+    width: min(96vw, 1180px) !important;
+    max-width: 1180px !important;
+    max-height: calc(100vh - 32px) !important;
+    min-width: 0 !important;
+    margin: 0 auto !important;
+    box-sizing: border-box !important;
+}
+
+.lead-approval-modal .custom-scrollbar {
+    min-height: 0 !important;
+    overflow: auto !important;
+}
+
+.lead-approval-modal table {
+    min-width: 900px !important;
+}
+
+.lead-approval-modal td,
+.lead-approval-modal th {
+    box-sizing: border-box !important;
+}
+
+/* ==========================================================
+   BOQ ESTIMATOR - COMPACT PRICE WORKSPACE
+   Mengurangi scroll vertikal + horizontal saat mengisi harga.
+   ========================================================== */
+.boq-price-workspace {
+    display: flex !important;
+    flex-direction: column !important;
+    min-height: 0 !important;
+}
+
+.boq-price-workspace > .sticky {
+    flex: 0 0 auto !important;
+}
+
+.boq-price-table-scroll {
+    height: min(48vh, 500px) !important;
+    min-height: 260px !important;
+    overflow: auto !important;
+}
+
+.boq-price-table {
+    width: 100% !important;
+    min-width: 900px !important;
+    table-layout: fixed !important;
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
+    font-size: 11px !important;
+}
+
+.boq-price-table th,
+.boq-price-table td {
+    height: 42px !important;
+    padding: 7px 9px !important;
+    border-right: 1px solid #dbe3ec !important;
+    border-bottom: 1px solid #dbe3ec !important;
+    vertical-align: middle !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+}
+
+.boq-price-table th {
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 10 !important;
+    background: #f1f5f9 !important;
+    color: #1e293b !important;
+    font-size: 10px !important;
+    font-weight: 700 !important;
+}
+
+.boq-price-table tbody tr:hover td {
+    background: #eef6e8 !important;
+}
+
+.boq-price-table th:nth-child(1), .boq-price-table td:nth-child(1) { width: 52px !important; }
+.boq-price-table th:nth-child(2), .boq-price-table td:nth-child(2) { width: 150px !important; }
+.boq-price-table th:nth-child(3), .boq-price-table td:nth-child(3) { width: 140px !important; }
+.boq-price-table .w-desc { width: 250px !important; }
+.boq-price-table .w-size { width: 105px !important; }
+.boq-price-table .w-qty { width: 105px !important; }
+.boq-price-table .w-price { width: 145px !important; }
+.boq-price-table .w-total { width: 145px !important; }
+
+.boq-price-table .sticky-price-cell {
+    position: sticky !important;
+    right: 145px !important;
+    z-index: 6 !important;
+    background: #fff !important;
+    box-shadow: -5px 0 8px rgba(15,23,42,.05) !important;
+}
+
+.boq-price-table thead .w-price {
+    position: sticky !important;
+    right: 145px !important;
+    z-index: 12 !important;
+    background: #f1f5f9 !important;
+}
+
+.boq-price-table .w-total {
+    position: sticky !important;
+    right: 0 !important;
+    z-index: 6 !important;
+    background: #fff !important;
+}
+
+.boq-price-table thead .w-total {
+    z-index: 12 !important;
+    background: #f1f5f9 !important;
+}
+
+.boq-price-table .boq-price-input {
+    width: 125px !important;
+    padding: 7px 8px !important;
+    height: 32px !important;
+}
+
+.boq-modal-overlay .boq-price-workspace .custom-scrollbar::-webkit-scrollbar {
+    width: 9px !important;
+    height: 9px !important;
+}
+
+@media (max-width: 900px) {
+    .boq-price-table-scroll { height: 45vh !important; }
+    .boq-price-table { min-width: 820px !important; }
+    .boq-price-table .w-desc { width: 210px !important; }
 }

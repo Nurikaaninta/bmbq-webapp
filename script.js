@@ -69,6 +69,59 @@ function appData() {
 
         activePriceLevel: 'Menengah',
         boqCurrency: 'USD',
+        boqPriceSearch: '',
+        boqPriceFilter: 'all',
+        boqPricePage: 1,
+        boqPricePageSize: 10,
+
+        get filteredBOQPriceGroups() {
+            const groups = this.allProjectsData?.[this.activeProject]?.meta?.boq?.priceGroups || [];
+            const q = this.normalizePriceMasterText(this.boqPriceSearch);
+            return groups.filter(g => {
+                const matchesSearch = !q || [g.sheet, g.component, g.description, g.unit, g.size1, g.size2]
+                    .map(v => this.normalizePriceMasterText(v)).some(v => v.includes(q));
+                const priced = Number(g.unitPrice || 0) > 0;
+                const matchesFilter = this.boqPriceFilter === 'priced' ? priced : this.boqPriceFilter === 'unpriced' ? !priced : true;
+                return matchesSearch && matchesFilter;
+            });
+        },
+
+        get totalBOQPricePages() {
+            return Math.max(1, Math.ceil(this.filteredBOQPriceGroups.length / this.boqPricePageSize));
+        },
+
+        get pagedBOQPriceGroups() {
+            if (this.boqPricePage > this.totalBOQPricePages) this.boqPricePage = this.totalBOQPricePages;
+            const start = (this.boqPricePage - 1) * this.boqPricePageSize;
+            return this.filteredBOQPriceGroups.slice(start, start + this.boqPricePageSize);
+        },
+
+        getBOQPriceGroupIndexByKey(key) {
+            const groups = this.allProjectsData?.[this.activeProject]?.meta?.boq?.priceGroups || [];
+            return groups.findIndex(g => g.key === key);
+        },
+
+        updateBOQPriceGroupByKey(key, value) {
+            const index = this.getBOQPriceGroupIndexByKey(key);
+            if (index >= 0) this.updateBOQPriceGroup(index, value);
+        },
+
+        resetBOQPricePage() { this.boqPricePage = 1; },
+
+        nextBOQPricePage() {
+            this.boqPricePage = Math.min(this.totalBOQPricePages, this.boqPricePage + 1);
+        },
+
+        prevBOQPricePage() {
+            this.boqPricePage = Math.max(1, this.boqPricePage - 1);
+        },
+
+        // Penyimpanan hasil BOM/BOQ antar-role.
+        // localStorage dipakai sebagai cache cepat; IndexedDB menjadi
+        // fallback agar hasil 641 item tidak hilang saat quota localStorage penuh.
+        bomBoqStorageReady: false,
+        bomBoqStoragePromise: null,
+
         
         newRowForm: {
             longDesc: '',
@@ -578,41 +631,264 @@ function appData() {
             return `tripatra_boq_v4::${encodeURIComponent(String(projectKey || 'default'))}`;
         },
 
+        // ==========================================================
+        // WORKFLOW STORAGE: ENGINEER -> ESTIMATOR -> LEAD
+        // ==========================================================
+        getWorkflowDB() {
+            return new Promise((resolve, reject) => {
+                if (!('indexedDB' in window)) {
+                    reject(new Error('IndexedDB tidak tersedia pada browser ini.'));
+                    return;
+                }
+
+                const request = indexedDB.open('tripatra_bmbq_workflow_v1', 1);
+
+                request.onupgradeneeded = (event) => {
+                    const db = event.target.result;
+                    if (!db.objectStoreNames.contains('snapshots')) {
+                        db.createObjectStore('snapshots', { keyPath: 'projectKey' });
+                    }
+                };
+
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error || new Error('Gagal membuka IndexedDB.'));
+            });
+        },
+
+        async saveWorkflowSnapshot(projectKey, project) {
+            if (!projectKey || !project?.meta) return;
+
+            const snapshot = {
+                projectKey: String(projectKey),
+                bom: project.meta.bom || null,
+                boq: project.meta.boq || null,
+                workflowStatus: project.meta.workflowStatus || 'DRAFT',
+                revision: project.meta.version || 0,
+                updatedAt: Date.now()
+            };
+
+            try {
+                const db = await this.getWorkflowDB();
+                await new Promise((resolve, reject) => {
+                    const tx = db.transaction('snapshots', 'readwrite');
+                    tx.objectStore('snapshots').put(snapshot);
+                    tx.oncomplete = resolve;
+                    tx.onerror = () => reject(tx.error || new Error('Gagal menyimpan snapshot.'));
+                    tx.onabort = () => reject(tx.error || new Error('Transaksi snapshot dibatalkan.'));
+                });
+                db.close();
+            } catch (error) {
+                console.warn('IndexedDB workflow storage tidak tersedia:', error);
+            }
+        },
+
+
+        async saveLeadBOQSnapshot(projectKey, project) {
+            if (!projectKey || !project?.meta?.boq?.items?.length) return;
+
+            const boq = project.meta.boq;
+            const submittedAt = Date.now();
+            const snapshot = {
+                projectKey: String(projectKey),
+                revision: Number(project.meta.version || 0),
+                workflowStatus: 'SUBMITTED_TO_LEAD',
+                submittedAt,
+                // Sumber kebenaran Lead: seluruh BOQ hasil Estimator, termasuk
+                // priceGroups, item prices, direct/indirect/total cost dan currency.
+                // Jangan biarkan data BOQ seed/stale di browser Lead menggantikannya.
+                boq: JSON.parse(JSON.stringify({
+                    ...boq,
+                    handoffTotalCost: Number(boq.totalCost) || 0,
+                    handoffDirectCost: Number(boq.directCost) || 0,
+                    handoffIndirectCost: Number(boq.indirectCost) || 0,
+                    handoffItemCount: Array.isArray(boq.items) ? boq.items.length : 0,
+                    handoffGroupCount: Array.isArray(boq.priceGroups) ? boq.priceGroups.length : 0,
+                    handoffAt: submittedAt,
+                    updatedAtEpoch: submittedAt
+                }))
+            };
+
+            // Simpan salinan final handoff di localStorage untuk browser
+            // yang tidak mengizinkan IndexedDB/file-origin tertentu.
+            const localKey = `tripatra_boq_lead_snapshot_v1_${String(projectKey)}`;
+            try {
+                localStorage.setItem(localKey, JSON.stringify(snapshot));
+            } catch (error) {
+                console.warn('Snapshot BOQ Lead localStorage penuh:', error);
+            }
+
+            try {
+                const db = await this.getWorkflowDB();
+                await new Promise((resolve, reject) => {
+                    const tx = db.transaction('snapshots', 'readwrite');
+                    const store = tx.objectStore('snapshots');
+                    store.put({
+                        projectKey: String(projectKey),
+                        bom: project.meta.bom || null,
+                        boq: snapshot.boq,
+                        workflowStatus: 'SUBMITTED_TO_LEAD',
+                        revision: snapshot.revision,
+                        updatedAt: snapshot.submittedAt,
+                        handoff: 'ESTIMATOR_TO_LEAD'
+                    });
+                    tx.oncomplete = resolve;
+                    tx.onerror = () => reject(tx.error || new Error('Gagal menyimpan snapshot Lead.'));
+                    tx.onabort = () => reject(tx.error || new Error('Transaksi snapshot Lead dibatalkan.'));
+                });
+                db.close();
+            } catch (error) {
+                console.warn('IndexedDB snapshot Lead tidak tersedia:', error);
+            }
+        },
+
+        async loadLeadBOQSnapshot(projectKey) {
+            const localKey = `tripatra_boq_lead_snapshot_v1_${String(projectKey)}`;
+
+            // Ambil snapshot khusus Lead lebih dulu.
+            try {
+                const raw = localStorage.getItem(localKey);
+                if (raw) {
+                    const snapshot = JSON.parse(raw);
+                    if (snapshot?.workflowStatus === 'SUBMITTED_TO_LEAD' &&
+                        (snapshot?.boq?.items?.length || snapshot?.boq?.priceGroups?.length)) return snapshot;
+                }
+            } catch (error) {
+                console.warn('Snapshot BOQ Lead localStorage tidak dapat dibaca:', error);
+            }
+
+            // Fallback ke IndexedDB.
+            try {
+                const snapshot = await this.loadWorkflowSnapshot(projectKey);
+                if (snapshot?.boq?.items?.length) return snapshot;
+            } catch (error) {
+                console.warn('Snapshot BOQ Lead IndexedDB tidak dapat dibaca:', error);
+            }
+
+            return null;
+        },
+
+        async loadWorkflowSnapshot(projectKey) {
+            try {
+                const db = await this.getWorkflowDB();
+                const snapshot = await new Promise((resolve, reject) => {
+                    const tx = db.transaction('snapshots', 'readonly');
+                    const req = tx.objectStore('snapshots').get(String(projectKey));
+                    req.onsuccess = () => resolve(req.result || null);
+                    req.onerror = () => reject(req.error || new Error('Gagal membaca snapshot.'));
+                });
+                db.close();
+                return snapshot;
+            } catch (error) {
+                console.warn('IndexedDB workflow snapshot tidak dapat dibaca:', error);
+                return null;
+            }
+        },
+
+        async hydrateBomBoqFromIndexedDB() {
+            for (const [projectKey, project] of Object.entries(this.allProjectsData || {})) {
+                if (!project?.meta) continue;
+
+                const snapshot = await this.loadWorkflowSnapshot(projectKey);
+                if (!snapshot) continue;
+
+                // Snapshot hanya menggantikan data jika lebih lengkap/lebih baru.
+                const localBom = project.meta.bom;
+                const localBoq = project.meta.boq;
+
+                if (snapshot.bom?.details?.length &&
+                    (!localBom?.details?.length ||
+                     Number(snapshot.updatedAt || 0) >= Number(localBom.updatedAtEpoch || 0))) {
+                    project.meta.bom = {
+                        ...snapshot.bom,
+                        updatedAtEpoch: snapshot.updatedAt
+                    };
+                }
+
+                if (snapshot.boq?.items?.length &&
+                    (!localBoq?.items?.length ||
+                     Number(snapshot.updatedAt || 0) >= Number(localBoq.updatedAtEpoch || 0))) {
+                    project.meta.boq = {
+                        ...snapshot.boq,
+                        updatedAtEpoch: snapshot.updatedAt
+                    };
+                }
+
+                if (snapshot.workflowStatus &&
+                    (!project.meta.workflowStatus || project.meta.workflowStatus === 'DRAFT')) {
+                    project.meta.workflowStatus = snapshot.workflowStatus;
+                }
+            }
+
+            this.bomBoqStorageReady = true;
+        },
+
+        ensureBomBoqReady() {
+            if (this.bomBoqStorageReady) return Promise.resolve();
+            if (!this.bomBoqStoragePromise) {
+                this.bomBoqStoragePromise = this.hydrateBomBoqFromIndexedDB()
+                    .catch(error => {
+                        console.warn('Hydrasi BOM/BOQ gagal:', error);
+                        this.bomBoqStorageReady = true;
+                    });
+            }
+            return this.bomBoqStoragePromise;
+        },
+
         loadBomBoqStorage() {
             Object.entries(this.allProjectsData || {}).forEach(([projectKey, project]) => {
                 if (!project?.meta) return;
                 try {
                     const bomRaw = localStorage.getItem(this.getBomStorageKey(projectKey));
                     const boqRaw = localStorage.getItem(this.getBoqStorageKey(projectKey));
+
                     if (bomRaw) {
                         const bom = JSON.parse(bomRaw);
                         if (bom && typeof bom === 'object') project.meta.bom = bom;
                     }
+
                     if (boqRaw) {
                         const boq = JSON.parse(boqRaw);
                         if (boq && typeof boq === 'object') project.meta.boq = boq;
                     }
                 } catch (error) {
-                    console.warn('BOM/BOQ storage tidak dapat dibaca:', error);
+                    console.warn('BOM/BOQ localStorage tidak dapat dibaca:', error);
                 }
             });
+
+            // Baca fallback IndexedDB sebelum Estimator melakukan kalkulasi.
+            this.bomBoqStoragePromise = this.hydrateBomBoqFromIndexedDB()
+                .catch(error => {
+                    console.warn('Hydrasi BOM/BOQ IndexedDB gagal:', error);
+                    this.bomBoqStorageReady = true;
+                });
         },
 
         saveBomBoqStorage() {
             Object.entries(this.allProjectsData || {}).forEach(([projectKey, project]) => {
                 const bom = project?.meta?.bom;
                 const boq = project?.meta?.boq;
+
+                // Tandai snapshot dengan epoch agar versi terbaru dapat dipilih.
+                const now = Date.now();
+                if (bom) bom.updatedAtEpoch = now;
+                if (boq) boq.updatedAtEpoch = now;
+
                 try {
                     if (bom) localStorage.setItem(this.getBomStorageKey(projectKey), JSON.stringify(bom));
                     else localStorage.removeItem(this.getBomStorageKey(projectKey));
+
                     if (boq) localStorage.setItem(this.getBoqStorageKey(projectKey), JSON.stringify(boq));
                     else localStorage.removeItem(this.getBoqStorageKey(projectKey));
                 } catch (error) {
-                    console.error('Gagal menyimpan BOM/BOQ terpisah:', error);
-                    alert('Penyimpanan BOM/BOQ gagal karena kapasitas browser penuh. Data tabel Excel tidak dihapus.');
+                    // Jangan menghapus data yang sudah ada jika quota localStorage penuh.
+                    console.warn('localStorage BOM/BOQ penuh; memakai IndexedDB sebagai penyimpanan workflow.', error);
                 }
+
+                // Selalu simpan snapshot workflow ke IndexedDB.
+                this.saveWorkflowSnapshot(projectKey, project);
             });
         },
+
 
         loadProjectMetaStorage() {
             try {
@@ -2389,25 +2665,29 @@ function appData() {
             this.showBomModal = true;
         },
 
-        submitBOMToEstimator() {
+        async submitBOMToEstimator() {
             if (this.loginForm.role !== 'Piping Engineer') return alert('Hanya Piping Engineer yang dapat mengirim BOM.');
             const bom = this.allProjectsData[this.activeProject]?.meta?.bom;
             if (!bom?.details?.length) return alert('Hitung BOM terlebih dahulu.');
             if (bom.matchingRule !== 'MTO_LINE_LIST_EXACT_MATCH_V2') {
                 return alert('BOM belum menggunakan aturan pencocokan MTO dengan Line List. Silakan Hitung Ulang BOM terlebih dahulu.');
             }
+            // Pastikan snapshot BOM benar-benar tersimpan sebelum berpindah role.
+            await this.saveWorkflowSnapshot(this.activeProject, this.allProjectsData[this.activeProject]);
             this.setWorkflowStatus('SUBMITTED_TO_ESTIMATOR', 'BOM sudah dikirim oleh Piping Engineer. Menunggu Estimator melakukan kalkulasi BOQ.');
             this.showBomModal = false;
             alert('BOM / BQ berhasil dikirim ke Estimator.');
         },
 
-        generateBOQ() {
+        async generateBOQ() {
+            await this.ensureBomBoqReady();
             if (this.loginForm.role !== 'Estimator Proposal') {
                 alert('Kalkulasi Biaya BOQ hanya dapat dilakukan oleh Estimator Proposal.');
                 return;
             }
 
-            const meta = this.allProjectsData?.[this.activeProject];
+            const project = this.allProjectsData?.[this.activeProject];
+            const meta = project?.meta;
 
             // BOQ final tidak dihitung ulang setelah Lead approval.
             if (this.workflowStatus === 'APPROVED') {
@@ -2427,14 +2707,14 @@ function appData() {
             // Pastikan BOM yang dipakai Estimator benar-benar mengikuti aturan
             // MTO Line Number ↔ Line List. BOM lama/stale dari versi sebelumnya
             // tidak boleh membuat tombol BOQ macet.
-            let currentBom = meta.meta?.bom;
+            let currentBom = meta?.bom;
             const bomNeedsRebuild = !currentBom?.details?.length ||
                 currentBom.matchingRule !== 'MTO_LINE_LIST_EXACT_MATCH_V2';
 
             if (bomNeedsRebuild) {
                 const keepStatus = this.workflowStatus;
                 this.calculateBOM(true);
-                currentBom = meta.meta?.bom;
+                currentBom = meta?.bom;
 
                 // calculateBOM membuka modal dan mengubah status menjadi BOM_CALCULATED.
                 // Kembalikan status agar Estimator tetap berada pada tahap yang benar.
@@ -2484,16 +2764,225 @@ function appData() {
         },
 
         getBOQGroupKey(row) {
-            const norm = (value) => String(value ?? '').trim().toLowerCase().replace(/\\s+/g, ' ');
+            const norm = (value) => String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+            // Harga diisi per JENIS/FAMILY item, bukan per ukuran dan bukan per sheet.
+            // Size 1/Size 2 tetap ditampilkan sebagai informasi pada detail BOM,
+            // tetapi tidak membuat kelompok harga baru.
             return [
-                norm(row.sheet),
                 norm(row.component),
                 norm(row.description),
-                norm(row.size1),
-                norm(row.size2),
                 norm(row.unit)
             ].join('||');
         },
+        getPriceMasterStorageKey() {
+            return 'tripatra_boq_price_master_v1';
+        },
+
+        normalizePriceMasterText(value) {
+            return String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+        },
+
+        buildPriceMasterKeyFromFields(component, description, unit, priceLevel = this.activePriceLevel, currency = this.boqCurrency) {
+            const norm = (v) => this.normalizePriceMasterText(v);
+            const groupKey = [norm(component), norm(description), norm(unit)].join('||');
+            return `${priceLevel || 'Menengah'}::${currency || 'IDR'}::${groupKey}`;
+        },
+
+        exportBOQPriceMaster() {
+            const master = this.loadBOQPriceMaster();
+            const rows = [['Price Level', 'Currency', 'Component', 'Description', 'Unit', 'Unit Price']];
+            Object.entries(master).forEach(([key, value]) => {
+                const parts = key.split('::');
+                if (parts.length < 5) return;
+                const priceLevel = parts[0];
+                const currency = parts[1];
+                const group = parts.slice(2).join('::').split('||');
+                rows.push([
+                    priceLevel,
+                    currency,
+                    group[0] || '',
+                    group[1] || '',
+                    group[2] || '',
+                    Number(value) || 0
+                ]);
+            });
+            const csv = rows.map(row => row.map(v => {
+                const s = String(v ?? '');
+                return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+            }).join(',')).join('\n');
+            const blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'BOQ_Price_Master.csv';
+            a.click();
+            URL.revokeObjectURL(url);
+        },
+
+        importBOQPriceMasterFile(event) {
+            const file = event?.target?.files?.[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+                try {
+                    const text = String(reader.result || '').replace(/^\uFEFF/, '');
+                    const lines = text.split(/\r?\n/).filter(Boolean);
+                    if (!lines.length) throw new Error('File kosong.');
+
+                    const parseCsvLine = (line) => {
+                        const out = [];
+                        let cur = '', quoted = false;
+                        for (let i = 0; i < line.length; i++) {
+                            const ch = line[i];
+                            if (ch === '"') {
+                                if (quoted && line[i + 1] === '"') { cur += '"'; i++; }
+                                else quoted = !quoted;
+                            } else if (ch === ',' && !quoted) {
+                                out.push(cur); cur = '';
+                            } else cur += ch;
+                        }
+                        out.push(cur);
+                        return out;
+                    };
+
+                    const headers = parseCsvLine(lines[0]).map(h => this.normalizePriceMasterText(h));
+                    const find = (...names) => names.map(n => headers.indexOf(this.normalizePriceMasterText(n))).find(i => i >= 0);
+                    const iLevel = find('Price Level', 'Level Harga');
+                    const iCurrency = find('Currency', 'Mata Uang');
+                    const iComponent = find('Component', 'Komponen');
+                    const iDescription = find('Description', 'Deskripsi');
+                    const iUnit = find('Unit', 'Satuan', 'UOM');
+                    const iPrice = find('Unit Price', 'Harga Satuan', 'Harga');
+
+                    if ([iComponent, iDescription, iUnit, iPrice].some(i => i === undefined)) {
+                        throw new Error('Kolom wajib: Component, Description, Unit, Unit Price.');
+                    }
+
+                    const master = this.loadBOQPriceMaster();
+                    let count = 0;
+                    lines.slice(1).forEach(line => {
+                        const cells = parseCsvLine(line);
+                        const price = Number(String(cells[iPrice] ?? '').replace(/[^0-9.-]/g, ''));
+                        if (!Number.isFinite(price) || price <= 0) return;
+                        const level = iLevel !== undefined && cells[iLevel] ? cells[iLevel] : this.activePriceLevel;
+                        const currency = iCurrency !== undefined && cells[iCurrency] ? cells[iCurrency] : this.boqCurrency;
+                        const key = this.buildPriceMasterKeyFromFields(
+                            cells[iComponent], cells[iDescription], cells[iUnit], level, currency
+                        );
+                        master[key] = price;
+                        count++;
+                    });
+                    this.saveBOQPriceMaster(master);
+                    this.applyBOQPriceMaster();
+                    alert(`${count} harga berhasil dimasukkan ke Price Master. Harga akan otomatis digunakan pada kelompok BOM yang sesuai.`);
+                    if (event.target) event.target.value = '';
+                } catch (error) {
+                    console.error(error);
+                    alert(`Import Price Master gagal: ${error.message}`);
+                }
+            };
+            reader.readAsText(file);
+        },
+
+        createPriceMasterTemplate() {
+            const rows = [
+                ['Price Level', 'Currency', 'Component', 'Description', 'Unit', 'Unit Price'],
+                ['Menengah', 'IDR', 'Valve', 'Gate Valve, Solid Wedge, 150 LB', 'EA', ''],
+                ['Menengah', 'IDR', 'Elbow', 'ELL 90 LR', 'EA', ''],
+                ['Menengah', 'IDR', 'Flange', 'FLANGE WN', 'EA', '']
+            ];
+            const csv = rows.map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+            const blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'BOQ_Price_Master_Template.csv';
+            a.click();
+            URL.revokeObjectURL(url);
+        },
+
+        loadBOQPriceMaster() {
+            try {
+                const raw = localStorage.getItem(this.getPriceMasterStorageKey());
+                const data = raw ? JSON.parse(raw) : {};
+                return data && typeof data === 'object' ? data : {};
+            } catch (error) {
+                console.warn('Price Master tidak dapat dibaca:', error);
+                return {};
+            }
+        },
+
+        saveBOQPriceMaster(master) {
+            try {
+                localStorage.setItem(this.getPriceMasterStorageKey(), JSON.stringify(master || {}));
+            } catch (error) {
+                console.warn('Price Master tidak dapat disimpan:', error);
+            }
+        },
+
+        getBOQPriceMasterKey(groupKey) {
+            return `${this.activePriceLevel || 'Menengah'}::${this.boqCurrency || 'IDR'}::${groupKey}`;
+        },
+
+        getBOQFamilyKey(row) {
+            const norm = (value) => String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+            return [
+                norm(row.component),
+                norm(row.unit)
+            ].join('||');
+        },
+
+        getMasterFamilyPrice(row) {
+            const master = this.loadBOQPriceMaster();
+            const familyKey = this.getBOQFamilyKey(row);
+            const matches = Object.entries(master).filter(([key, value]) =>
+                key.includes(`::${familyKey}::`) && Number(value) > 0
+            );
+            const unique = [...new Set(matches.map(([, value]) => Number(value)))];
+            return unique.length === 1 ? unique[0] : 0;
+        },
+
+        getMasterPrice(groupKey) {
+            const master = this.loadBOQPriceMaster();
+            const value = Number(master[this.getBOQPriceMasterKey(groupKey)]);
+            return Number.isFinite(value) && value > 0 ? value : 0;
+        },
+
+        saveGroupPriceToMaster(group) {
+            if (!group || Number(group.unitPrice) <= 0) return;
+            const master = this.loadBOQPriceMaster();
+            master[this.getBOQPriceMasterKey(group.key)] = Number(group.unitPrice);
+            this.saveBOQPriceMaster(master);
+        },
+
+        applyBOQPriceMaster() {
+            const meta = this.allProjectsData?.[this.activeProject]?.meta;
+            if (!meta?.boq?.priceGroups?.length) return 0;
+
+            const master = this.loadBOQPriceMaster();
+            let applied = 0;
+
+            meta.boq.priceGroups.forEach(group => {
+                const price = Number(master[this.getBOQPriceMasterKey(group.key)]);
+                if (Number.isFinite(price) && price > 0 && Number(group.unitPrice || 0) <= 0) {
+                    group.unitPrice = price;
+                    meta.boq.items.forEach(row => {
+                        if (this.getBOQGroupKey(row) === group.key) {
+                            row.unitPrice = price;
+                            row.totalPrice = price * (Number(row.qty) || 0);
+                        }
+                    });
+                    applied++;
+                }
+            });
+
+            this.recalculateBOQTotals();
+            this.saveProjectData?.();
+            if (typeof this.render === 'function') this.render();
+            alert(`${applied} kelompok harga berhasil diambil dari Price Master.`);
+            return applied;
+        },
+
 
         rebuildBOQPriceGroups(previousPriceMap = new Map()) {
             const meta = this.allProjectsData?.[this.activeProject]?.meta;
@@ -2508,12 +2997,14 @@ function appData() {
                         sheet: row.sheet || '-',
                         component: row.component || '-',
                         description: row.description || '-',
-                        size1: row.size1 ?? null,
-                        size2: row.size2 ?? null,
+                        size1: 'Semua Ukuran',
+                        size2: 'Semua Ukuran',
                         unit: row.unit || '-',
                         qty: 0,
                         itemCount: 0,
-                        unitPrice: Number(previousPriceMap.get(key) ?? 0) || 0
+                        unitPrice: Number(previousPriceMap.get(key) ?? 0) ||
+                            this.getMasterPrice(key) ||
+                            this.getMasterFamilyPrice(row) || 0
                     });
                 }
                 const group = groups.get(key);
@@ -2543,6 +3034,7 @@ function appData() {
 
             const n = Number(String(value).replace(/,/g, '')) || 0;
             group.unitPrice = n;
+            if (n > 0) this.saveGroupPriceToMaster(group);
 
             const groupKey = group.key;
             meta.boq.items.forEach(row => {
@@ -2578,6 +3070,13 @@ function appData() {
             };
         },
 
+        // Alias yang dipakai tampilan ringkasan BOQ.
+        // Tetap gunakan sumber data priceGroups yang sama agar angka
+        // "Harga Sudah Diisi" dan "Belum Diisi" selalu sinkron dengan tabel.
+        getBOQPriceCoverage() {
+            return this.getBOQGroupPriceCoverage();
+        },
+
         updateBOQPrice(index, value) {
             const meta = this.allProjectsData?.[this.activeProject]?.meta;
             if (!meta?.boq?.items?.[index]) return;
@@ -2597,23 +3096,68 @@ function appData() {
             this.saveStorage();
         },
 
-        submitBOQToLead() {
+        async submitBOQToLead() {
             if (this.loginForm.role !== 'Estimator Proposal') return alert('Hanya Estimator Proposal yang dapat mengirim BOQ.');
             const meta = this.allProjectsData?.[this.activeProject]?.meta;
             if (!meta?.boq?.items?.length) return alert('Hitung BOQ terlebih dahulu.');
+
             const coverage = this.getBOQGroupPriceCoverage();
             if (coverage.unpriced > 0) {
                 return alert(`Masih ada ${coverage.unpriced} kelompok harga yang belum diisi. Lengkapi Unit Price terlebih dahulu sebelum mengirim BOQ ke Lead.`);
             }
-            this.setWorkflowStatus('SUBMITTED_TO_LEAD', 'BOQ sudah dikirim oleh Estimator. Menunggu Lead Estimator melakukan review.');
+
+            // Pastikan harga terakhir yang sedang tampil sudah dihitung dan
+            // disimpan sebelum BOQ berpindah ke Lead.
+            this.recalculateBOQTotals();
+
+            // Snapshot ini adalah sumber kebenaran Lead:
+            // item, group price, direct cost, indirect cost, currency,
+            // dan total cost semuanya berasal dari hasil Estimator terakhir.
+            await this.saveLeadBOQSnapshot(
+                this.activeProject,
+                this.allProjectsData[this.activeProject]
+            );
+
+            this.setWorkflowStatus(
+                'SUBMITTED_TO_LEAD',
+                'BOQ sudah dikirim oleh Estimator. Menunggu Lead Estimator melakukan review.'
+            );
             this.showBoqModal = false;
             alert('BOQ berhasil dikirim ke Lead Estimator untuk review.');
         },
 
-        approveData() {
+        async approveData() {
             if (this.loginForm.role !== 'Lead Estimator') {
                 alert('Approval & Review Laporan hanya dapat dilakukan oleh Lead Estimator.');
                 return;
+            }
+
+            // Lead HARUS membaca snapshot handoff terakhir dari Estimator.
+            // Jangan menggunakan BOQ lokal/seed yang mungkin hanya berisi 12 item.
+            // Ini juga menjaga Total BOQ tetap sama persis dengan hasil Estimator.
+            await this.ensureBomBoqReady();
+            if (this.workflowStatus === 'SUBMITTED_TO_LEAD') {
+                const submitted = await this.loadLeadBOQSnapshot(this.activeProject);
+                const submittedBoq = submitted?.boq;
+                const submittedItems = Array.isArray(submittedBoq?.items) ? submittedBoq.items : [];
+                const submittedGroups = Array.isArray(submittedBoq?.priceGroups) ? submittedBoq.priceGroups : [];
+                if (submittedItems.length > 0 || submittedGroups.length > 0) {
+                    const meta = this.allProjectsData?.[this.activeProject]?.meta;
+                    if (meta) {
+                        meta.boq = JSON.parse(JSON.stringify(submittedBoq));
+                        meta.boq.updatedAtEpoch = Number(submitted?.submittedAt || meta.boq.updatedAtEpoch || Date.now());
+                        // Simpan total handoff secara eksplisit agar UI Lead tidak
+                        // menghitung ulang dari subset/stale data.
+                        meta.boq.totalCost = Number(submittedBoq.handoffTotalCost ?? submittedBoq.totalCost ?? 0);
+                        meta.boq.directCost = Number(submittedBoq.handoffDirectCost ?? submittedBoq.directCost ?? 0);
+                        meta.boq.indirectCost = Number(submittedBoq.handoffIndirectCost ?? submittedBoq.indirectCost ?? 0);
+                        this.saveProjectMetaOnly();
+                        this.saveBomBoqStorage();
+                    }
+                } else {
+                    alert('Data BOQ dari Estimator tidak ditemukan. Jangan lanjut review agar total BOQ tidak salah.');
+                    return;
+                }
             }
 
             // Setelah approval, tombol review membuka laporan final.
@@ -2636,6 +3180,16 @@ function appData() {
             if (!reviewBoq?.items?.length) {
                 alert('BOQ belum tersedia. Estimator harus menghitung dan mengirim BOQ terlebih dahulu.');
                 return;
+            }
+            const handoffCount = Number(reviewBoq.handoffItemCount || 0);
+            if (handoffCount && reviewBoq.items.length !== handoffCount) {
+                alert(`Data BOQ Lead tidak sinkron (${reviewBoq.items.length} item terbaca, seharusnya ${handoffCount}). Handoff dari Estimator akan dimuat ulang.`);
+                const submitted = await this.loadLeadBOQSnapshot(this.activeProject);
+                if (submitted?.boq) {
+                    meta.boq = JSON.parse(JSON.stringify(submitted.boq));
+                    this.saveProjectMetaOnly();
+                    this.saveBomBoqStorage();
+                }
             }
             if (meta?.bom?.matchingRule !== 'MTO_LINE_LIST_EXACT_MATCH_V2') {
                 alert('BOQ belum menggunakan pencocokan Line Number MTO dengan Line List. Engineer harus menghitung ulang BOM terlebih dahulu.');
@@ -2815,8 +3369,6 @@ function appData() {
                 materialGroups.forEach(m => { h += itemRow('', '- ' + m, pipeAmount(m), 'DIA.INCH'); });
                 return h;
             };
-
-            const detailRows = rows.map((r,i) => `<tr><td>${i+1}</td><td>${esc(r.lineNo || '-')}</td><td>${esc(r.component || '-')}</td><td>${esc(r.description || '-')}</td><td class="qty">${num(r.inchDia)}</td><td>${esc(r.unit || 'DIA.INCH')}</td></tr>`).join('');
             const approval = approvalItem || this.latestApproval || {};
             const approved = approval.status === 'APPROVED' || meta.isApproved;
             const status = approved ? 'APPROVED' : this.getApprovalStatusText(approval.status || meta.workflowStatus);
@@ -2842,7 +3394,6 @@ function appData() {
             <table class="summary"><tr><th>BOQ SUMMARY</th><th class="right">VALUE</th></tr><tr><td>Direct Cost</td><td class="right">${money(boq.directCost)}</td></tr><tr><td>Indirect Cost</td><td class="right">${money(boq.indirectCost)}</td></tr><tr><th>Total BOQ</th><th class="right">${money(boq.totalCost)}</th></tr></table>
             <div class="note"><b>Approval Note:</b> ${esc(approval.notes || meta.revisionNotes || '-')}</div>
             <div class="footer"><div class="sign">Prepared by<br><b>Estimator Proposal</b></div><div class="sign">Reviewed &amp; Approved by<br><b>Lead Estimator</b></div></div>
-            <div class="detail"><h2>DETAIL PERHITUNGAN BOM / BOQ</h2><table><thead><tr><th>No</th><th>Line No.</th><th>Component</th><th>Description</th><th>Inch-Dia</th><th>Unit</th></tr></thead><tbody>${detailRows}</tbody></table></div>
             </body></html>`;
 
             const win = window.open('', '_blank', 'width=1100,height=850');
