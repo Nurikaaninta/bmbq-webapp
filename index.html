@@ -991,38 +991,32 @@
                     <div class="bom-detail-scroll custom-scrollbar">
                         <table class="bom-detail-table text-[10px]">
                             <colgroup>
-                                <col class="c-no"><col class="c-line"><col class="c-sheet"><col class="c-component"><col class="c-desc">
-                                <col class="c-qty"><col class="c-size"><col class="c-size"><col class="c-length"><col class="c-unit"><col class="c-inch">
+                                <col class="c-no"><col class="c-component"><col class="c-desc">
+                                <col class="c-qty"><col class="c-size1"><col class="c-size2"><col class="c-unit"><col class="c-inch">
                             </colgroup>
                             <thead>
                                 <tr>
                                     <th>No</th>
-                                    <th>Line No.</th>
-                                    <th>Sheet</th>
                                     <th>Component</th>
                                     <th>Description</th>
                                     <th>Qty</th>
                                     <th>Size 1</th>
                                     <th>Size 2</th>
-                                    <th>Length</th>
                                     <th>Unit</th>
                                     <th>Inch-Dia</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <template x-for="row in (allProjectsData[activeProject]?.meta?.bom?.details || [])" :key="row.no + '-' + row.sheet + '-' + row.lineNo">
+                                <template x-for="row in (allProjectsData[activeProject]?.meta?.bom?.details || [])" :key="row.no + '-' + row.component + '-' + row.description">
                                     <tr>
                                         <td x-text="row.no"></td>
-                                        <td class="font-mono" x-text="row.lineNo"></td>
-                                        <td x-text="row.sheet"></td>
                                         <td x-text="row.component"></td>
-                                        <td class="text-left" x-text="row.description || '-' "></td>
-                                        <td class="text-right" x-text="Number(row.qty).toFixed(2)"></td>
-                                        <td class="text-right" x-text="row.size1 || '-' "></td>
-                                        <td class="text-right" x-text="row.size2 || '-' "></td>
-                                        <td class="text-right" x-text="row.length || '-' "></td>
+                                        <td class="bom-full-description" x-text="row.description || '-' "></td>
+                                        <td class="text-center" x-text="Number(row.qty).toFixed(2)"></td>
+                                        <td class="text-center" x-text="row.size1 || '-' "></td>
+                                        <td class="text-center" x-text="row.size2 || '-' "></td>
                                         <td class="text-center" x-text="row.unit"></td>
-                                        <td class="text-right font-bold text-indigo-600" x-text="Number(row.inchDia).toFixed(2)"></td>
+                                        <td class="text-center font-bold text-indigo-600" x-text="Number(row.inchDia).toFixed(2)"></td>
                                     </tr>
                                 </template>
                             </tbody>
@@ -1082,7 +1076,7 @@
                         <div class="flex flex-wrap items-center justify-between gap-3">
                             <div>
                                 <div class="text-xs font-bold">Harga BOQ — Per Kelompok Item</div>
-                                <div class="text-[10px] text-slate-500 mt-1">Isi Unit Price satu kali per karakteristik item. Item dengan karakteristik sama memakai harga yang sama.</div>
+                                <div class="text-[10px] text-slate-500 mt-1">Isi Unit Price satu kali per karakteristik harga: component, description, size, dan unit. Ukuran berbeda memiliki kelompok harga berbeda.</div>
                             </div>
                             <div class="flex flex-wrap gap-2">
                                 <button type="button" @click="createPriceMasterTemplate()" class="px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-700 text-[10px] font-semibold hover:bg-slate-50">Template Harga</button>
@@ -1107,7 +1101,7 @@
                             </select>
                         </div>
                         <div class="mt-2 p-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[10px]">
-                            <b>Price Master:</b> import harga perusahaan satu kali. Sistem tidak mengarang harga; harga yang cocok akan otomatis digunakan pada kelompok BOM.
+                            <b>Price Master:</b> simpan harga perusahaan berdasarkan jenis item dan ukuran. Harga yang cocok dengan component, description, size, dan unit akan otomatis digunakan; ukuran berbeda tetap memiliki harga sendiri.
                         </div>
                     </div>
                     <div class="boq-price-table-scroll overflow-auto custom-scrollbar">
@@ -1133,9 +1127,11 @@
                                             <div class="text-[9px] text-slate-400" x-text="group.itemCount + ' item'"></div>
                                         </td>
                                         <td class="truncate" :title="group.component" x-text="group.component"></td>
-                                        <td class="w-desc truncate" :title="group.description" x-text="group.description"></td>
-                                        <td class="w-size" x-text="(group.size1 ?? '-') + (group.size2 != null && group.size2 !== '' ? ' / ' + group.size2 : '')"></td>
-                                        <td class="w-qty text-right" x-text="Number(group.qty || 0).toFixed(2) + ' ' + (group.unit || '')"></td>
+                                        <td class="w-desc boq-group-description" :title="group.description || '-'" style="white-space:nowrap !important; overflow:hidden !important; text-overflow:ellipsis !important;">
+                                            <div class="boq-description-one-line" x-text="group.description || '-'"></div>
+                                        </td>
+                                        <td class="w-size text-center" x-text="formatBOQSize(group.size1, group.size2)"></td>
+                                        <td class="w-qty text-center" x-text="formatBOQQty(group.qty)"></td>
                                         <td class="w-price sticky-price-cell">
                                             <input type="number" min="0" step="0.01" :value="group.unitPrice || 0" @input="updateBOQPriceGroupByKey(group.key, $event.target.value)" class="boq-price-input" placeholder="0">
                                         </td>

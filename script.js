@@ -2361,42 +2361,103 @@ function appData() {
                 return;
             }
 
-            // Jika sedang menunggu role berikutnya, tampilkan hasil BOM yang sudah ada.
-            if (status === 'SUBMITTED_TO_ESTIMATOR' || status === 'SUBMITTED_TO_LEAD') {
+            // Untuk tahap Estimator, BOM yang sudah dikirim tetap boleh dibuka,
+            // tetapi snapshot lama harus dihitung ulang terlebih dahulu agar perubahan
+            // Long Description (Size), Size 1, dan rumus Inch-Dia tidak tertinggal.
+            // Status workflow dikembalikan ke status semula setelah recalculation.
+            if (status === 'SUBMITTED_TO_ESTIMATOR') {
+                this.calculateBOM(true);
+                const project = this.allProjectsData?.[this.activeProject];
+                if (project?.meta) {
+                    project.meta.workflowStatus = status;
+                    project.meta.workflowUpdatedAt = new Date().toLocaleString('id-ID');
+                    this.saveProjectMetaOnly();
+                }
+                this.showBomModal = true;
+                return;
+            }
+
+            if (status === 'SUBMITTED_TO_LEAD') {
                 const existingBom = this.allProjectsData?.[this.activeProject]?.meta?.bom;
                 if (existingBom?.details?.length) {
                     this.showBomModal = true;
                     return;
                 }
-                alert('BOM sudah dikirim ke tahap berikutnya dan sedang menunggu proses Estimator/Lead.');
+                alert('BOM sudah dikirim ke Lead dan sedang menunggu proses approval.');
                 return;
             }
 
-            const existingBom = this.allProjectsData?.[this.activeProject]?.meta?.bom;
-            if (existingBom?.details?.length && existingBom.sourceSheet === 'ALL_MTO') {
-                this.showBomModal = true;
-                return;
-            }
-
-            this.calculateBOM();
+            // Pada draft/revisi selalu hitung ulang dari sumber MTO terbaru.
+            this.calculateBOM(true);
         },
 
         getNumeric(row, keys) {
             for (const key of keys) {
                 const value = row?.[key];
-                if (value !== undefined && value !== null && String(value).trim() !== '') {
-                    const n = Number(String(value).replace(/,/g, '').replace(/[^0-9.\-]/g, ''));
-                    if (Number.isFinite(n)) return n;
+                if (value === undefined || value === null || String(value).trim() === '') continue;
+
+                // Excel dapat menyimpan ukuran sebagai pecahan seperti 3/4.
+                // Jangan menghapus slash lalu mengubah 3/4 menjadi 34.
+                // Excel sering menyimpan ukuran nominal seperti 3/4" atau 1 1/2".
+                // Buang hanya tanda inci di ujung, JANGAN menghapus slash pecahan.
+                const raw = String(value).trim().replace(/,/g, '').replace(/[\"″”']+$/g, '').trim();
+                const fraction = raw.match(/^(\d+)\s*\/\s*(\d+)$/);
+                if (fraction) {
+                    const numerator = Number(fraction[1]);
+                    const denominator = Number(fraction[2]);
+                    if (denominator !== 0) return numerator / denominator;
                 }
+
+                const mixedFraction = raw.match(/^(\d+)\s+(\d+)\s*\/\s*(\d+)$/);
+                if (mixedFraction) {
+                    const whole = Number(mixedFraction[1]);
+                    const numerator = Number(mixedFraction[2]);
+                    const denominator = Number(mixedFraction[3]);
+                    if (denominator !== 0) return whole + numerator / denominator;
+                }
+
+                const n = Number(raw.replace(/[^0-9.\-]/g, ''));
+                if (Number.isFinite(n)) return n;
             }
             return 0;
         },
 
+        normalizeFieldKey(value) {
+            return String(value ?? '')
+                .replace(/\u00A0/g, ' ')
+                .trim()
+                .replace(/\s+/g, ' ')
+                .toLowerCase();
+        },
+
         getText(row, keys, fallback = '-') {
+            if (!row || typeof row !== 'object') return fallback;
+
+            // 1) Prioritas exact key agar nilai Excel tidak berubah.
             for (const key of keys) {
                 const value = row?.[key];
-                if (value !== undefined && value !== null && String(value).trim() !== '') return String(value).trim();
+                if (value !== undefined && value !== null && String(value).trim() !== '') {
+                    return String(value).trim();
+                }
             }
+
+            // 2) Fallback case/whitespace-insensitive untuk header Excel seperti
+            // LONG DESCRIPTION (SIZE), Long Description (Size), atau header
+            // yang memiliki spasi tersembunyi. Nilai cell tetap dipertahankan.
+            const normalized = new Map();
+            Object.keys(row).forEach(actualKey => {
+                const nk = this.normalizeFieldKey(actualKey);
+                if (!normalized.has(nk)) normalized.set(nk, actualKey);
+            });
+            for (const key of keys) {
+                const actualKey = normalized.get(this.normalizeFieldKey(key));
+                if (!actualKey) continue;
+                const value = row[actualKey];
+                if (value !== undefined && value !== null && String(value).trim() !== '') {
+                    return String(value).trim();
+                }
+            }
+
             return fallback;
         },
 
@@ -2425,11 +2486,11 @@ function appData() {
             const aliases = {
                 lineNo: ['Line No.', 'Line No', 'LINE NO.', 'Complete Line No.', 'Line Number Tag', 'LINE NUMBER TAG', 'Tag', 'TAG', 'LINE NUMBER'],
                 component: ['Component', 'COMPONENT', 'Equipment Type', 'TYPE', 'Part Subtype'],
-                description: ['Short Description', 'SHORT DESCRIPTION', 'Long Description (Family)', 'LONG DESCRIPTION (FAMILY)', 'Description', 'DESCRIPTION', 'Fluid Service', 'Process Fluid Identifier'],
+                description: ['Long Description (Size)', 'LONG DESCRIPTION (SIZE)', 'Long Description (Family)', 'LONG DESCRIPTION (FAMILY)', 'Short Description', 'SHORT DESCRIPTION', 'Description', 'DESCRIPTION', 'Fluid Service', 'Process Fluid Identifier'],
                 qty: ['Qty', 'Quantity', 'QTY', 'Item Count', 'ITEM COUNT'],
                 size1: ['Size 1', 'SIZE 1', 'Size', 'SIZE', 'Nominal Size', 'Line Size (Inch)', 'LINE SIZE (INCH)'],
                 size2: ['Size 2', 'SIZE 2'],
-                length: ['Length', 'LENGTH', 'Pipe Length', 'PIPE LENGTH', 'Length (m)', 'LENGTH (M)'],
+                length: ['Length', 'LENGTH', 'Pipe Length', 'PIPE LENGTH', 'Length (m)', 'LENGTH (M)', 'Cut Length', 'CUT LENGTH', 'Fixed Length', 'FIXED LENGTH'],
                 unit: ['Unit', 'UNIT', 'UOM', 'Satuan']
             };
 
@@ -2442,7 +2503,7 @@ function appData() {
                 if (field === 'qty') return 1;
                 if (field === 'size1') return this.getNumeric(row, ['Line Size (Inch)', 'LINE SIZE (INCH)']);
                 if (field === 'size2') return this.getNumeric(row, ['Size 2', 'SIZE 2']);
-                if (field === 'length') return this.getNumeric(row, ['Length', 'LENGTH', 'Pipe Length', 'PIPE LENGTH']);
+                if (field === 'length') return this.getNumeric(row, ['Length', 'LENGTH', 'Pipe Length', 'PIPE LENGTH', 'Cut Length', 'CUT LENGTH']);
                 if (field === 'unit') return 'LINE';
             }
 
@@ -2450,7 +2511,7 @@ function appData() {
             if (sheet === 'valve') {
                 if (field === 'lineNo') return this.sanitizeLineNo(this.getText(row, ['Line Number Tag', 'LINE NUMBER TAG', 'Tag', 'TAG', 'Complete Line No.'], ''));
                 if (field === 'component') return 'Valve';
-                if (field === 'description') return this.getText(row, ['Long Description (Family)', 'Short Description', 'Long Description (Size)'], 'Valve');
+                if (field === 'description') return this.getText(row, ['Long Description (Size)', 'LONG DESCRIPTION (SIZE)', 'Long Description (Family)', 'LONG DESCRIPTION (FAMILY)', 'Short Description', 'SHORT DESCRIPTION'], 'Valve');
                 if (field === 'qty') return this.getNumeric(row, ['Qty', 'Quantity', 'Item Count', 'ITEM COUNT']) || 1;
                 if (field === 'size1') return this.getNumeric(row, ['Size', 'SIZE', 'Nominal Diameter', 'Nominal Size']);
                 if (field === 'size2') return this.getNumeric(row, ['Size 2', 'SIZE 2']);
@@ -2490,6 +2551,8 @@ function appData() {
         },
 
         calculateBOM(forceRecalculate = false) {
+            // forceRecalculate sengaja diterima agar tombol Calculate BOM/Hitung Ulang
+            // selalu menghasilkan snapshot baru. Tidak ada early-return berdasarkan BOM lama.
             const rows = this.getAllMtoRows();
             if (!rows.length) {
                 alert('Belum ada data MTO. Import atau input data MTO terlebih dahulu.');
@@ -2518,84 +2581,163 @@ function appData() {
                 return 'COMPONENT';
             };
 
-            // MASTER RUMUS BOM DARI MENTOR.
-            // Jangan menambah/mengganti rumus dengan asumsi lain.
-            const formulaFor = (component, description, sheet, size1, size2, qty, length) => {
-                const t = `${component} ${description} ${sheet}`.toLowerCase().replace(/[°]/g, '');
-                const BF = Number(size1) || 0;
-                const BG = Number(size2) || 0;
-                const R = Number(qty) || 0;
-                const pipeR = Number(length) || 0;
-                const x = (n) => Number(n || 0).toFixed(2);
-                let value = 0;
-                let formula = 'Belum ada rumus mentor';
+            // MASTER PEMETAAN RUMUS BOM / BQ.
+            // Setiap jenis item memiliki aturan Inch-Dia sendiri. Jika source
+            // tidak menyediakan rumus khusus, item yang mempunyai Size + Qty
+            // tetap diberi nilai nominal Size x Qty agar tidak menghasilkan 0
+            // hanya karena nama item belum ada di mapping.
+            const extractSizesFromDescription = (text) => {
+                const src = String(text || '');
+                const matches = [];
+                const re = /(\d+(?:\s+\d+\/\d+|\/\d+)?)\s*["″]/g;
+                let m;
+                while ((m = re.exec(src))) {
+                    const raw = m[1].trim();
+                    const parts = raw.split(/\s+/);
+                    let n = 0;
+                    if (parts.length === 2 && /\//.test(parts[1])) {
+                        const [a,b] = parts[1].split('/').map(Number);
+                        n = Number(parts[0]) + (b ? a / b : 0);
+                    } else if (/^\d+\/\d+$/.test(raw)) {
+                        const [a,b] = raw.split('/').map(Number);
+                        n = b ? a / b : 0;
+                    } else {
+                        n = Number(raw);
+                    }
+                    if (Number.isFinite(n) && n > 0) matches.push(n);
+                }
+                return matches;
+            };
 
-                // 1) Cap = BF2 × R2
+            const formulaFor = (component, description, sheet, size1, size2, qty, length) => {
+                const componentText = String(component || '').trim().toLowerCase();
+                const descriptionText = String(description || '').trim().toLowerCase();
+                const sheetText = String(sheet || '').trim().toLowerCase();
+                const t = `${componentText} ${descriptionText} ${sheetText}`.replace(/[°]/g, '');
+                const BF = Number(size1) || 0;
+                const descSizes = extractSizesFromDescription(description);
+                const BG = Number(size2) || (descSizes.length >= 2 ? descSizes[1] : 0);
+                const R = Number(qty) || 0;
+                const pipeLength = Number(length) || 0;
+                let value = 0;
+                let formula = 'Belum ada rumus khusus';
+
+                // ----------------------------------------------------------
+                // FITTING / COMPONENT BERDASARKAN MASTER RUMUS ENGINEER
+                // ----------------------------------------------------------
                 if (/\bcap\b/.test(t)) {
                     value = BF * R;
                     formula = 'BF2 × R2';
-
-                // 2) Coupling = 2 × BF2 × R2
-                } else if (/\breducing\s+coupling\b/.test(t)) {
+                }
+                else if (/\breducing\s+coupling\b/.test(t)) {
                     value = (BF + BG) * R;
                     formula = '(BF2 × R2) + (BG2 × R2)';
-                } else if (/\bcoupling\b/.test(t)) {
+                }
+                else if (/\bcoupling\b/.test(t)) {
                     value = 2 * BF * R;
                     formula = '2 × BF2 × R2';
-
-                // 3) Reducers
-                } else if (/\b(concentric|eccentric)\s+reducer\b/.test(t)) {
+                }
+                else if (/\b(concentric|eccentric)\s+reducer\b/.test(t)) {
                     value = (BF + BG) * R;
                     formula = '(BF2 × R2) + (BG2 × R2)';
-
-                // 4) Elbows
-                } else if (/\belbow\s*90\b|\b90\s*elbow\b/.test(t)) {
+                }
+                else if (/\b(elbow|ell)\b/.test(t) && /\b90\b/.test(t)) {
                     value = 2 * BF * R;
                     formula = '2 × BF2 × R2';
-                } else if (/\belbow\s*45\b|\b45\s*elbow\b/.test(t)) {
+                }
+                else if (/\b(elbow|ell)\b/.test(t) && /\b45\b/.test(t)) {
                     value = 2 * BF * R;
                     formula = '2 × BF2 × R2';
-
-                // 5) Flange dan opsi 300#/600# menggunakan rumus yang sama.
-                } else if (/\bflange\b/.test(t)) {
+                }
+                else if (/\bflange\b/.test(t)) {
                     value = BF * R;
                     formula = 'BF2 × R2';
-
-                // 6) Pipe = ROUNDDOWN(R2/6,0) × BF2
-                } else if (/\bpipe\b/.test(t) && !/support|strainer|valve|elbow|tee|reducer|coupling|flange|olet|socket|weldolet|threadolet|pad/.test(t)) {
-                    value = Math.floor(pipeR / 6) * BF;
-                    formula = 'ROUNDDOWN(R2/6,0) × BF2';
-
-                // 7) Branch / olet
-                } else if (/\bsaddle\s+branch\b|\bsockolet\b/.test(t)) {
-                    value = (BG + 1.5 * BG) * R;
-                    formula = '(BG2 × R2) + (1.5 × BG2 × R2)';
-                } else if (/\bweldolet\b|\bthreadolet\b/.test(t)) {
-                    value = (BG + 1.5 * BG) * R;
-                    formula = '(BG2 × R2) + (1.5 × BG2 × R2)';
-
-                // 8) Tee
-                } else if (/\bequal\s+tee\b/.test(t)) {
-                    value = 3 * BF * R;
-                    formula = '3 × BF2 × R2';
-                } else if (/\breducing\s+tee\b|\bbarred\s+tee\b/.test(t)) {
-                    value = (2 * BF + BG) * R;
-                    formula = '(2 × BF2 × R2) + (BG2 × R2)';
-
-                // 9) Reinforcing Pad
-                } else if (/\b90\s*reinforcing\s+pad\b|\b45\s*reinforcing\s+pad\b/.test(t)) {
-                    value = (BG + (8 + BG)) * R;
-                    formula = '(BG2 × R2) + ((8+BG2) × R2)';
-
-                // 10) 45° Pipe to Pipe Full Encirclement
-                } else if (/\b45\s*pipe\s+to\s+pipe\s+full\s+encirclement\b/.test(t)) {
-                    value = (2 * BF + 2 * 1.5 * BF) * R;
-                    formula = '(2 × BF2 × R2) + (2 × 1.5 × BF2 × R2)';
-
-                // 11) Valve / strainer SW
-                } else if (/\bt\s*strainer\s*bw\b|\bball\s+valve\s*sw\b|\bcheck\s+valve\s*sw\b|\bgate\s+valve\s*sw\b|\bglobe\s+valve\s*sw\b/.test(t)) {
+                }
+                else if (/\b(strainer|ball\s+valve|check\s+valve|gate\s+valve|globe\s+valve)\b/.test(t)) {
                     value = 2 * BF * R;
                     formula = '(BF2 × R2) + (BF2 × R2)';
+                }
+                else if (/\bequal\s+tee\b/.test(t) || (/\btee\b/.test(t) && !/\b(reducing|barred)\b/.test(t))) {
+                    value = 3 * BF * R;
+                    formula = '3 × BF2 × R2';
+                }
+                else if (/\b(reducing|barred)\s+tee\b/.test(t)) {
+                    value = (2 * BF + BG) * R;
+                    formula = '(2 × BF2 × R2) + (BG2 × R2)';
+                }
+                else if (/\bsaddle\s+branch\b|\bsockolet\b/.test(t)) {
+                    const branch = BG > 0 ? BG : BF;
+                    value = (branch + 1.5 * branch) * R;
+                    formula = '(BG2 × R2) + (1.5 × BG2 × R2)';
+                }
+                else if (/\bweldolet\b|\bthreadolet\b/.test(t)) {
+                    const branch = BG > 0 ? BG : BF;
+                    value = (branch + 1.5 * branch) * R;
+                    formula = '(BG2 × R2) + (1.5 × BG2 × R2)';
+                }
+                else if (/\b90\s*reinforcing\s+pad\b|\b45\s*reinforcing\s+pad\b/.test(t)) {
+                    const branch = BG > 0 ? BG : BF;
+                    value = (branch + (8 + branch)) * R;
+                    formula = '(BG2 × R2) + ((8+BG2) × R2)';
+                }
+                else if (/\b45\s*pipe\s+to\s+pipe\s+full\s+encirclement\b/.test(t)) {
+                    value = (2 * BF + (2 * 1.5 * BF)) * R;
+                    formula = '(2 × BF2 × R2) + (2 × 1.5 × BF2 × R2)';
+                }
+                // ----------------------------------------------------------
+                // WELD / JOINT MARKERS DARI MTO
+                // Buttweld, Tapweld dan Socketweld adalah marker joint pada
+                // data MTO. Karena satu marker mewakili satu sambungan pada
+                // diameter nominalnya, nilai dasarnya = Qty x Size.
+                // ----------------------------------------------------------
+                else if (/\bbuttweld\b/.test(t)) {
+                    value = BF * R;
+                    formula = 'BF2 × R2 (Buttweld joint)';
+                }
+                else if (/\btap\s*weld\b|\btapweld\b/.test(t)) {
+                    value = BF * R;
+                    formula = 'BF2 × R2 (Tapweld joint)';
+                }
+                else if (/\bsocket\s*weld\b|\bsocketweld\b/.test(t)) {
+                    value = BF * R;
+                    formula = 'BF2 × R2 (Socketweld joint)';
+                }
+                // ----------------------------------------------------------
+                // SUPPORT
+                // Harus diuji sebelum PIPE karena "Pipe guide" mengandung
+                // kata Pipe tetapi merupakan support.
+                // ----------------------------------------------------------
+                else if (/\bsupport\b|\bwelded\s+stanchion\b|\bpipe\s+guide\b|\bdummy\s+legs?\b|\bsaddled\s+slide\b|\bsaddled\s+anchor\b|\bwedge\s+support\b/.test(t)) {
+                    value = BF * R;
+                    formula = 'BF2 × R2';
+                }
+                // ----------------------------------------------------------
+                // PIPE
+                // Rumus master: ROUNDDOWN(Length/6,0) x Size x Qty.
+                // Bila Length tidak tersedia / < 6 m, tetap gunakan Size x Qty
+                // supaya kolom Inch-Dia tidak kosong/0 hanya karena source MTO
+                // tidak membawa panjang pipe.
+                // ----------------------------------------------------------
+                else if (componentText === 'pipe' || /\bpipe\b/.test(descriptionText)) {
+                    const pieces = Math.floor(pipeLength / 6);
+                    if (pieces > 0) {
+                        value = pieces * BF * R;
+                        formula = 'ROUNDDOWN(R2/6,0) × BF2 × Qty';
+                    } else if (BF > 0 && R > 0) {
+                        value = BF * R;
+                        formula = 'BF2 × R2 (fallback Length < 6 m/tidak tersedia)';
+                    }
+                }
+                // ----------------------------------------------------------
+                // ITEM LAIN
+                // Gasket, Bolt Set, Fasteners dan item MTO lain yang memiliki
+                // Size tetapi belum punya formula khusus tetap memperoleh nilai
+                // nominal Size x Qty. Ini menjaga seluruh detail memiliki angka
+                // yang dapat ditelusuri, tanpa mengubah Description sumber.
+                // ----------------------------------------------------------
+                else if (BF > 0 && R > 0) {
+                    value = BF * R;
+                    formula = 'BF2 × R2 (fallback item)';
                 }
 
                 return { value, formula };
@@ -2765,15 +2907,42 @@ function appData() {
 
         getBOQGroupKey(row) {
             const norm = (value) => String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
-            // Harga diisi per JENIS/FAMILY item, bukan per ukuran dan bukan per sheet.
-            // Size 1/Size 2 tetap ditampilkan sebagai informasi pada detail BOM,
-            // tetapi tidak membuat kelompok harga baru.
+            // Harga BOQ dikelompokkan berdasarkan karakteristik harga yang nyata.
+            // Ukuran TIDAK lagi diganti menjadi "Semua Ukuran".
+            // Setiap kombinasi Component + Description + Size 1 + Size 2 + Unit
+            // menjadi kelompok harga tersendiri agar harga ukuran berbeda tidak
+            // tercampur (penting untuk material piping Tripatra).
             return [
                 norm(row.component),
                 norm(row.description),
+                norm(row.size1),
+                norm(row.size2),
                 norm(row.unit)
             ].join('||');
         },
+        formatBOQQty(value) {
+            const n = Number(value);
+            if (!Number.isFinite(n)) return '-';
+            if (Number.isInteger(n)) return String(n);
+            return String(Number(n.toFixed(2)));
+        },
+
+        formatBOQSize(size1, size2) {
+            const clean = (value) => {
+                if (value === null || value === undefined || String(value).trim() === '') return '';
+                const n = Number(value);
+                // Size 2 = 0 pada data MTO berarti tidak ada ukuran kedua.
+                if (Number.isFinite(n) && n === 0) return '';
+                return String(value).trim();
+            };
+            const s1 = clean(size1);
+            const s2 = clean(size2);
+            if (s1 && s2) return `${s1} × ${s2}`;
+            if (s1) return s1;
+            if (s2) return s2;
+            return '-';
+        },
+
         getPriceMasterStorageKey() {
             return 'tripatra_boq_price_master_v1';
         },
@@ -2782,27 +2951,32 @@ function appData() {
             return String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
         },
 
-        buildPriceMasterKeyFromFields(component, description, unit, priceLevel = this.activePriceLevel, currency = this.boqCurrency) {
+        buildPriceMasterKeyFromFields(component, description, size1, size2, unit, priceLevel = this.activePriceLevel, currency = this.boqCurrency) {
             const norm = (v) => this.normalizePriceMasterText(v);
-            const groupKey = [norm(component), norm(description), norm(unit)].join('||');
+            const groupKey = [norm(component), norm(description), norm(size1), norm(size2), norm(unit)].join('||');
             return `${priceLevel || 'Menengah'}::${currency || 'IDR'}::${groupKey}`;
         },
 
         exportBOQPriceMaster() {
             const master = this.loadBOQPriceMaster();
-            const rows = [['Price Level', 'Currency', 'Component', 'Description', 'Unit', 'Unit Price']];
+            const rows = [['Price Level', 'Currency', 'Component', 'Description', 'Size 1', 'Size 2', 'Unit', 'Unit Price']];
             Object.entries(master).forEach(([key, value]) => {
                 const parts = key.split('::');
                 if (parts.length < 5) return;
                 const priceLevel = parts[0];
                 const currency = parts[1];
                 const group = parts.slice(2).join('::').split('||');
+                // Mendukung format baru: component | description | size1 | size2 | unit.
+                // Format lama tetap diekspor tanpa merusak data yang sudah tersimpan.
+                const isNewFormat = group.length >= 5;
                 rows.push([
                     priceLevel,
                     currency,
                     group[0] || '',
                     group[1] || '',
-                    group[2] || '',
+                    isNewFormat ? (group[2] || '') : '',
+                    isNewFormat ? (group[3] || '') : '',
+                    isNewFormat ? (group[4] || '') : (group[2] || ''),
                     Number(value) || 0
                 ]);
             });
@@ -2851,6 +3025,8 @@ function appData() {
                     const iCurrency = find('Currency', 'Mata Uang');
                     const iComponent = find('Component', 'Komponen');
                     const iDescription = find('Description', 'Deskripsi');
+                    const iSize1 = find('Size 1', 'Size1', 'Ukuran 1');
+                    const iSize2 = find('Size 2', 'Size2', 'Ukuran 2');
                     const iUnit = find('Unit', 'Satuan', 'UOM');
                     const iPrice = find('Unit Price', 'Harga Satuan', 'Harga');
 
@@ -2867,7 +3043,13 @@ function appData() {
                         const level = iLevel !== undefined && cells[iLevel] ? cells[iLevel] : this.activePriceLevel;
                         const currency = iCurrency !== undefined && cells[iCurrency] ? cells[iCurrency] : this.boqCurrency;
                         const key = this.buildPriceMasterKeyFromFields(
-                            cells[iComponent], cells[iDescription], cells[iUnit], level, currency
+                            cells[iComponent],
+                            cells[iDescription],
+                            iSize1 !== undefined ? cells[iSize1] : '',
+                            iSize2 !== undefined ? cells[iSize2] : '',
+                            cells[iUnit],
+                            level,
+                            currency
                         );
                         master[key] = price;
                         count++;
@@ -2886,10 +3068,10 @@ function appData() {
 
         createPriceMasterTemplate() {
             const rows = [
-                ['Price Level', 'Currency', 'Component', 'Description', 'Unit', 'Unit Price'],
-                ['Menengah', 'IDR', 'Valve', 'Gate Valve, Solid Wedge, 150 LB', 'EA', ''],
-                ['Menengah', 'IDR', 'Elbow', 'ELL 90 LR', 'EA', ''],
-                ['Menengah', 'IDR', 'Flange', 'FLANGE WN', 'EA', '']
+                ['Price Level', 'Currency', 'Component', 'Description', 'Size 1', 'Size 2', 'Unit', 'Unit Price'],
+                ['Menengah', 'IDR', 'Valve', 'Gate Valve, Solid Wedge, 150 LB', '6', '-', 'EA', ''],
+                ['Menengah', 'IDR', 'Elbow', 'ELL 90 LR', '8', '-', 'EA', ''],
+                ['Menengah', 'IDR', 'Flange', 'FLANGE WN', '8', '-', 'EA', '']
             ];
             const csv = rows.map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
             const blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
@@ -2997,8 +3179,8 @@ function appData() {
                         sheet: row.sheet || '-',
                         component: row.component || '-',
                         description: row.description || '-',
-                        size1: 'Semua Ukuran',
-                        size2: 'Semua Ukuran',
+                        size1: row.size1 ?? '-',
+                        size2: row.size2 ?? '-',
                         unit: row.unit || '-',
                         qty: 0,
                         itemCount: 0,

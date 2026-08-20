@@ -1183,3 +1183,233 @@ aside,
     .boq-price-table { min-width: 820px !important; }
     .boq-price-table .w-desc { width: 210px !important; }
 }
+
+/* Calculate BOM: tampilkan Description lengkap dari Long Description (Size), tanpa ellipsis.
+   Case/tulisan dipertahankan persis seperti sumber Excel. */
+.bom-detail-table .bom-full-description {
+    min-width: 560px;
+    width: 560px;
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    word-break: normal;
+    overflow-wrap: anywhere;
+    line-height: 1.45;
+    vertical-align: top;
+    color: #334155;
+}
+.bom-detail-table .c-desc { min-width: 560px; width: 560px; }
+.bom-detail-table tbody td { height: auto; }
+.bom-detail-table .c-no { width: 56px; min-width: 56px; }
+.bom-detail-table .c-component { width: 150px; min-width: 150px; }
+.bom-detail-table .c-qty { width: 90px; min-width: 90px; }
+.bom-detail-table .c-size { width: 100px; min-width: 100px; }
+.bom-detail-table .c-unit { width: 80px; min-width: 80px; }
+.bom-detail-table .c-inch { width: 110px; min-width: 110px; }
+
+
+/* FINAL BOM DETAIL OVERRIDE: full Long Description (Size), no truncation */
+.bom-detail-table .bom-full-description {
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    overflow-wrap: anywhere !important;
+    word-break: normal !important;
+    line-height: 1.45 !important;
+    min-width: 560px !important;
+    width: 560px !important;
+    max-width: 560px !important;
+    vertical-align: top !important;
+}
+.bom-detail-table tbody td {
+    height: auto !important;
+    min-height: 38px !important;
+}
+
+
+/* =========================================================
+   FINAL BOM DETAIL TABLE - COMPACT & CENTERED
+   ========================================================= */
+.bom-detail-table {
+    width: 100% !important;
+    min-width: 1040px !important;
+    table-layout: fixed !important;
+}
+
+.bom-detail-table .c-no {
+    width: 42px !important;
+    min-width: 42px !important;
+}
+
+.bom-detail-table .c-component {
+    width: 135px !important;
+    min-width: 135px !important;
+}
+
+.bom-detail-table .c-desc {
+    width: 535px !important;
+    min-width: 535px !important;
+}
+
+.bom-detail-table .c-qty {
+    width: 70px !important;
+    min-width: 70px !important;
+}
+
+.bom-detail-table .c-size1,
+.bom-detail-table .c-size2 {
+    width: 78px !important;
+    min-width: 78px !important;
+}
+
+.bom-detail-table .c-unit {
+    width: 62px !important;
+    min-width: 62px !important;
+}
+
+.bom-detail-table .c-inch {
+    width: 95px !important;
+    min-width: 95px !important;
+}
+
+.bom-detail-table th,
+.bom-detail-table td {
+    text-align: center !important;
+    vertical-align: middle !important;
+}
+
+.bom-detail-table .bom-full-description {
+    width: 535px !important;
+    min-width: 535px !important;
+    max-width: 535px !important;
+    text-align: center !important;
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    overflow-wrap: anywhere !important;
+    word-break: normal !important;
+    line-height: 1.35 !important;
+}
+
+.bom-detail-table th {
+    font-size: 10px !important;
+    text-align: center !important;
+}
+
+.bom-detail-table td {
+    font-size: 10px !important;
+}
+
+
+/* =========================================================
+   PROJECT 2 - BOQ PRICE TABLE: COMPACT & READABLE
+   Description tetap menyimpan nilai lengkap dari sumber Excel,
+   tetapi tampilan tabel dibuat 1 baris agar estimator tidak
+   harus melakukan scroll vertikal panjang. Nilai lengkap tetap
+   tersedia melalui title/hover.
+   ========================================================= */
+.boq-price-table .w-size {
+    width: 95px !important;
+    min-width: 95px !important;
+    max-width: 95px !important;
+    text-align: center !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+}
+
+.boq-price-table .boq-group-description {
+    width: 390px !important;
+    min-width: 390px !important;
+    max-width: 390px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    overflow-wrap: normal !important;
+    word-break: normal !important;
+    line-height: 1.2 !important;
+    vertical-align: middle !important;
+}
+
+/* Semua kolom tetap compact; teks lengkap dapat dilihat lewat title/hover. */
+.boq-price-table td:nth-child(2),
+.boq-price-table td:nth-child(3),
+.boq-price-table td:nth-child(4) {
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+}
+
+.boq-price-table tbody td {
+    height: 42px !important;
+    min-height: 42px !important;
+    max-height: 42px !important;
+    padding-top: 6px !important;
+    padding-bottom: 6px !important;
+    vertical-align: middle !important;
+}
+
+.boq-price-table tbody td:nth-child(1),
+.boq-price-table tbody td:nth-child(5),
+.boq-price-table tbody td:nth-child(6),
+.boq-price-table tbody td:nth-child(7),
+.boq-price-table tbody td:nth-child(8) {
+    text-align: center !important;
+}
+
+.boq-price-table .w-qty {
+    width: 90px !important;
+    min-width: 90px !important;
+}
+
+.boq-price-table .w-price {
+    width: 145px !important;
+    min-width: 145px !important;
+}
+
+.boq-price-table .w-total {
+    width: 145px !important;
+    min-width: 145px !important;
+}
+
+.boq-price-table .boq-price-input {
+    margin-left: auto !important;
+    margin-right: auto !important;
+    text-align: center !important;
+}
+
+@media (max-width: 900px) {
+    .boq-price-table .boq-group-description {
+        width: 300px !important;
+        min-width: 300px !important;
+        max-width: 300px !important;
+    }
+}
+
+
+
+/* FINAL ESTIMATOR BOQ TABLE - description compact, one visual line.
+   Full source text remains in the cell title for hover. */
+.boq-price-table td.boq-group-description {
+    width: 410px !important;
+    min-width: 410px !important;
+    max-width: 410px !important;
+    height: 42px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    vertical-align: middle !important;
+}
+.boq-price-table .boq-description-one-line {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 18px !important;
+    line-height: 18px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    word-break: normal !important;
+    overflow-wrap: normal !important;
+}
+\n\n/* ==========================================================\n   FINAL BOQ ESTIMATOR TABLE - CLEAN COMPACT LAYOUT\n   Qty is numeric only; Unit is not appended because the table\n   is a grouped-price table and the source unit is already part\n   of the group definition. Description is readable in up to 2\n   lines without horizontal overflow.\n   ========================================================== */\n.boq-price-table {\n    width: 100% !important;\n    min-width: 0 !important;\n    table-layout: fixed !important;\n    font-size: 10.5px !important;\n}\n.boq-price-table th,\n.boq-price-table td {\n    box-sizing: border-box !important;\n    padding: 6px 8px !important;\n    vertical-align: middle !important;\n}\n.boq-price-table th:nth-child(1),\n.boq-price-table td:nth-child(1) { width: 44px !important; min-width:44px !important; max-width:44px !important; text-align:center !important; }\n.boq-price-table th:nth-child(2),\n.boq-price-table td:nth-child(2) { width: 105px !important; min-width:105px !important; max-width:105px !important; }\n.boq-price-table th:nth-child(3),\n.boq-price-table td:nth-child(3) { width: 105px !important; min-width:105px !important; max-width:105px !important; }\n.boq-price-table th:nth-child(4),\n.boq-price-table td:nth-child(4) { width: 400px !important; min-width:400px !important; max-width:400px !important; }\n.boq-price-table th:nth-child(5),\n.boq-price-table td:nth-child(5) { width: 70px !important; min-width:70px !important; max-width:70px !important; text-align:center !important; }\n.boq-price-table th:nth-child(6),\n.boq-price-table td:nth-child(6) { width: 75px !important; min-width:75px !important; max-width:75px !important; text-align:center !important; }\n.boq-price-table th:nth-child(7),\n.boq-price-table td:nth-child(7) { width: 100px !important; min-width:100px !important; max-width:100px !important; text-align:center !important; }\n.boq-price-table th:nth-child(8),\n.boq-price-table td:nth-child(8) { width: 100px !important; min-width:100px !important; max-width:100px !important; text-align:center !important; }\n.boq-price-table .boq-group-description {\n    width:400px !important; min-width:400px !important; max-width:400px !important;\n    white-space:normal !important; overflow:hidden !important; text-overflow:clip !important;\n    overflow-wrap:anywhere !important; word-break:normal !important;\n    line-height:1.35 !important;\n}\n.boq-price-table .boq-description-one-line {\n    width:100% !important; max-width:100% !important;\n    white-space:normal !important; overflow:hidden !important; text-overflow:clip !important;\n    display:-webkit-box !important; -webkit-box-orient:vertical !important; -webkit-line-clamp:2 !important;\n    line-clamp:2 !important; line-height:1.35 !important; max-height:2.7em !important;\n}\n.boq-price-table tbody td { height:44px !important; min-height:44px !important; max-height:60px !important; }\n.boq-price-table td:nth-child(2) > div:first-child,\n.boq-price-table td:nth-child(3) { white-space:nowrap !important; overflow:hidden !important; text-overflow:ellipsis !important; }\n.boq-price-table .w-qty,\n.boq-price-table .w-size,\n.boq-price-table .w-price,\n.boq-price-table .w-total { text-align:center !important; }\n.boq-price-table .boq-price-input {\n    width:86px !important; min-width:86px !important; max-width:86px !important;\n    height:32px !important; padding:5px 6px !important; margin:0 auto !important;\n    text-align:center !important; box-sizing:border-box !important;\n}\n.boq-price-table .sticky-price-cell,\n.boq-price-table thead .w-price,\n.boq-price-table .w-total,\n.boq-price-table thead .w-total {\n    position:static !important; right:auto !important; box-shadow:none !important;\n}\n@media (max-width: 900px) {\n    .boq-price-table { min-width: 999px !important; }\n}\n
