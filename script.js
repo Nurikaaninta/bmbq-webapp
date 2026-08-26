@@ -1729,6 +1729,230 @@ function appData() {
             });
         },
 
+        // ==========================================================
+        // VALIDASI INPUT MASTER DATA
+        // Aturan mengikuti data master yang sudah ada pada seed-data.js.
+        // - number  : hanya angka/desimal
+        // - digits  : hanya digit, cocok untuk No/Seq. No yang bisa
+        //             membutuhkan leading zero
+        // - uppercase/lowercase : mengikuti pola kolom
+        // - text    : tidak dipaksa mengubah kapitalisasi
+        //
+        // Nilai lama/import Excel TIDAK diubah. Aturan ini hanya bekerja
+        // ketika user mengetik/mengedit cell.
+        // ==========================================================
+        getSeedColumnValues(sheetName, column) {
+            try {
+                const seedRows = window.BMBQ_SEED_DATA?.[sheetName];
+                if (!Array.isArray(seedRows)) return [];
+                return [...new Set(
+                    seedRows
+                        .map(row => String(row?.[column] ?? '').trim())
+                        .filter(Boolean)
+                )];
+            } catch (e) {
+                return [];
+            }
+        },
+
+        getColumnInputRule(sheetName, column) {
+            const sheet = String(sheetName || '').trim();
+            const col = String(column || '').trim();
+
+            // Field yang memang merupakan nomor/kode angka tertentu.
+            // Seq. No sengaja digits agar 0001 tetap bisa dipertahankan.
+            const digitsBySheet = {
+                'LineList': new Set(['No', 'Seq. No']),
+                'SP Items': new Set(['Item Count']),
+                'Nozzle': new Set(['Number']),
+                'Vessel': new Set(['Number']),
+                'Misc Equipment': new Set(['Number'])
+            };
+            if (digitsBySheet[sheet]?.has(col)) return col === 'Seq. No' ? 'digits' : 'number';
+
+            // Kolom SIZE bukan angka HTML murni karena data engineering menggunakan
+            // format seperti 10", 3/4", dan 1 1/2". Tetap dianggap sebagai field
+            // ukuran numerik: hanya digit + pecahan + titik + spasi + tanda inch.
+            const sizeColumns = new Set([
+                'Size', 'Size 1', 'Size 2', 'Nominal Size', 'Line Size (Inch)',
+                'Line Size', 'Available Size'
+            ]);
+            if (sizeColumns.has(col)) return 'size';
+
+            // Material Code adalah kode engineering: bukan angka murni dan bukan
+            // free-text biasa. Nilai yang sudah ada di master dipertahankan
+            // kapitalisasinya (contoh: ASTM A216 Gr WPB). Nilai baru yang diketik
+            // dengan huruf kecil akan dinormalisasi ke uppercase agar tidak ada
+            // kode baru yang tersimpan seluruhnya dalam lowercase.
+            if (col === 'Material Code') return 'material-code';
+
+            // Kolom angka yang secara engineering memang berisi nilai numerik.
+            const numericColumns = new Set([
+                'Area', 'Actuator Height', 'Actuator Width', 'Bottom of Pipe',
+                'Branch Angle1', 'Branch Angle2', 'Center of Gravity X',
+                'Center of Gravity Y', 'Center of Gravity Z',
+                'COP Elevation (Port 1)', 'Curve Radius', 'Cut Length',
+                'Cutback Angle', 'Design Pressure Factor', 'Eccentricity',
+                'Engagement Length', 'Flange Thickness', 'Fixed Length',
+                'Insulation Thickness', 'Length', 'Linear Weight',
+                'Matching Pipe OD', 'Max Length', 'Min Length',
+                'Minimum Cut Length', 'Nominal Diameter', 'Number In Set',
+                'Path Angle', 'PnPID', 'Pressure Class', 'Schedule',
+                'Thickness [mm]', 'Top of Pipe', 'Weight',
+                'X Coordinate (Port 1)', 'Y Coordinate (Port 1)',
+                'Center of Gravity Z', 'Operating Temperature',
+                'Design Temperature', 'Mass Flow\\n[kg/h]',
+                'Volume Flow\\n[m1.5/h]', 'Density\\n[kg/m3]',
+                'Viscosity\\n[cP]', 'Pressure [Barg]', 'Loop Number'
+            ]);
+            if (numericColumns.has(col)) return 'number';
+
+            // Number pada equipment tertentu adalah identifier alfanumerik
+            // (contoh: 2002A, 3000A), jadi tidak dipaksa menjadi angka.
+
+            const values = this.getSeedColumnValues(sheet, col);
+            if (!values.length) {
+                // Kolom kosong pada seed tetap diberi aturan berdasarkan nama.
+                // Yang ambigu (Manufacturer, Remarks, From, To, DWG, Tag, dll.)
+                // tetap menjadi text agar tidak merusak kode engineering.
+                return 'text';
+            }
+
+            const isNumeric = values.filter(v =>
+                /^[-+]?\d+(?:\.\d+)?$/.test(v)
+            ).length;
+            const isUpper = values.filter(v =>
+                v === v.toUpperCase() && v !== v.toLowerCase()
+            ).length;
+            const isLower = values.filter(v =>
+                v === v.toLowerCase() && v !== v.toUpperCase()
+            ).length;
+
+            const total = values.length;
+
+            // Ambang 90% dipakai supaya satu-dua data legacy yang berbeda
+            // tidak mengubah aturan kolom secara keseluruhan.
+            if (isNumeric / total >= 0.90) return 'number';
+            if (isUpper / total >= 0.90) return 'uppercase';
+            if (isLower / total >= 0.90) return 'lowercase';
+
+            // Mixed/Title/campuran tetap text. Contoh penting:
+            // Material Code, Size, Long Description (Family) Valve,
+            // Short Description, Tag, Part Subtype, Design Std.
+            return 'text';
+        },
+
+        getCellInputMode(sheetName, column) {
+            return this.getColumnInputRule(sheetName, column) === 'number' ? 'decimal' : 'text';
+        },
+
+        getCellInputType(sheetName, column) {
+            // Tetap text agar format engineering seperti 3/4", CS150,
+            // 2002A, 10"x8" tidak dirusak oleh HTML number input.
+            return 'text';
+        },
+
+        normalizeNumericInput(value) {
+            let v = String(value ?? '').replace(/,/g, '.');
+            // Pertahankan minus hanya di posisi pertama.
+            const negative = v.trim().startsWith('-');
+            v = v.replace(/[^0-9.]/g, '');
+            const parts = v.split('.');
+            if (parts.length > 2) v = parts.shift() + '.' + parts.join('');
+            v = v.replace(/^(\d*\.\d*)\..*$/, '$1');
+            return negative && v ? '-' + v : v;
+        },
+
+        normalizeDigitsInput(value) {
+            return String(value ?? '').replace(/\D/g, '');
+        },
+
+        normalizeSizeInput(value) {
+            let v = String(value ?? '');
+            // Hanya izinkan angka, pecahan (/), desimal (.), spasi, dan tanda inch.
+            // Huruf seperti abc/xyz langsung dibuang saat user mengetik.
+            v = v.replace(/[^0-9\/\.\s"]/g, '');
+            v = v.replace(/\s+/g, ' ').trim();
+            // Jangan izinkan dua slash atau dua titik berturut-turut.
+            v = v.replace(/\/{2,}/g, '/').replace(/\.{2,}/g, '.');
+            return v;
+        },
+
+        normalizeMaterialCodeInput(sheetName, column, value) {
+            const raw = String(value ?? '').trim();
+            if (!raw) return '';
+
+            // Prioritaskan format canonical yang memang sudah dipakai oleh master data.
+            const canonical = this.findCanonicalCellValue(sheetName, column, raw);
+            if (canonical !== null) return canonical;
+
+            // Kode baru tidak boleh tersimpan seluruhnya dalam lowercase.
+            return raw.toUpperCase();
+        },
+
+        findCanonicalCellValue(sheetName, column, value) {
+            const raw = String(value ?? '').trim();
+            if (!raw) return '';
+            const values = this.getSeedColumnValues(sheetName, column);
+            const found = values.find(v => v.toLowerCase() === raw.toLowerCase());
+            return found ?? null;
+        },
+
+        formatCellInput(row, column, event) {
+            if (!row || !column || this.loginForm.role !== 'Piping Engineer') return;
+
+            const raw = String(event?.target?.value ?? row[column] ?? '');
+            const rule = this.getColumnInputRule(this.activeSheet, column);
+            let formatted = raw;
+
+            if (rule === 'number') {
+                formatted = this.normalizeNumericInput(raw);
+            } else if (rule === 'digits') {
+                formatted = this.normalizeDigitsInput(raw);
+            } else if (rule === 'size') {
+                formatted = this.normalizeSizeInput(raw);
+            } else if (rule === 'material-code') {
+                formatted = this.normalizeMaterialCodeInput(this.activeSheet, column, raw);
+            } else if (rule === 'uppercase') {
+                formatted = raw.toUpperCase();
+            } else if (rule === 'lowercase') {
+                formatted = raw.toLowerCase();
+            } else {
+                // Mixed/text: jangan paksa UPPERCASE/title case.
+                // Jika user mengetik nilai yang memang sudah ada di master,
+                // gunakan kapitalisasi canonical dari master.
+                const canonical = this.findCanonicalCellValue(this.activeSheet, column, raw);
+                formatted = canonical !== null ? canonical : raw;
+            }
+
+            row[column] = formatted;
+            if (event?.target && event.target.value !== formatted) {
+                event.target.value = formatted;
+            }
+        },
+
+        validateCellInput(row, column) {
+            if (!row || !column || this.loginForm.role !== 'Piping Engineer') return;
+
+            const current = String(row[column] ?? '');
+            const rule = this.getColumnInputRule(this.activeSheet, column);
+            let formatted = current;
+
+            if (rule === 'number') formatted = this.normalizeNumericInput(current);
+            else if (rule === 'digits') formatted = this.normalizeDigitsInput(current);
+            else if (rule === 'size') formatted = this.normalizeSizeInput(current);
+            else if (rule === 'material-code') formatted = this.normalizeMaterialCodeInput(this.activeSheet, column, current);
+            else if (rule === 'uppercase') formatted = current.toUpperCase();
+            else if (rule === 'lowercase') formatted = current.toLowerCase();
+            else {
+                const canonical = this.findCanonicalCellValue(this.activeSheet, column, current);
+                if (canonical !== null) formatted = canonical;
+            }
+
+            row[column] = formatted;
+            this.markRowEdited(row);
+        },
+
         markRowEdited(row) {
             if (!row) return;
             row.__edited = true;

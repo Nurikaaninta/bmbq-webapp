@@ -390,10 +390,12 @@
 
                                             <template x-for="col in currentColumns" :key="tableRenderKey + '-cell-' + index + '-' + col">
                                                 <td :class="getFreezeClass(col)" style="min-width: 130px;">
-                                                    <input type="text"
+                                                    <input :type="getCellInputType(activeSheet, col)"
+                                                           :inputmode="getCellInputMode(activeSheet, col)"
                                                            x-model="row[col]"
                                                            :disabled="loginForm.role !== 'Piping Engineer'"
-                                                           @change="markRowEdited(row)"
+                                                           @input="formatCellInput(row, col, $event)"
+                                                           @change="validateCellInput(row, col)"
                                                            class="excel-input text-center">
                                                 </td>
                                             </template>
