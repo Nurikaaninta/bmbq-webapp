@@ -4029,16 +4029,201 @@ function appData() {
         printPDF() {
             const rows = this.filteredRows || [];
             if (!rows.length) return alert(`Tidak ada data pada sheet ${this.activeSheet}.`);
+
+            // PDF Export khusus: tidak mengubah tampilan tabel utama.
             const columns = this.currentColumns || [];
-            const escapeHtml = (v) => String(v ?? '').replace(/[&<>\"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[ch]));
-            const headers = ['No', 'Long Description (Family)', ...columns.filter(c => c !== 'Long Description (Family)')];
-            const body = rows.map((row, i) => `<tr>${headers.map((h, j) => `<td>${escapeHtml(j === 0 ? String(i + 1).padStart(2,'0') : row[h])}</td>`).join('')}</tr>`).join('');
-            const win = window.open('', '_blank', 'width=1200,height=800');
+            const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, ch => ({
+                '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+            }[ch]));
+
+            const paperOptions = [
+                { value: 'A3', label: 'A3 (Default - Landscape)' },
+                { value: 'A4', label: 'A4 (Landscape)' },
+                { value: 'Letter', label: 'Letter (Landscape)' }
+            ];
+
+            // Modal pilihan kertas agar export tetap konsisten dengan kebutuhan kantor.
+            const old = document.getElementById('pdf-export-settings-modal');
+            if (old) old.remove();
+            const modal = document.createElement('div');
+            modal.id = 'pdf-export-settings-modal';
+            modal.innerHTML = `
+                <div style="position:fixed;inset:0;background:rgba(15,23,42,.42);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;font-family:Arial,sans-serif">
+                    <div style="width:min(420px,94vw);background:#fff;border:1px solid #dbe4ef;border-radius:14px;box-shadow:0 20px 60px rgba(15,23,42,.22);overflow:hidden">
+                        <div style="padding:16px 18px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;gap:10px">
+                            <div style="width:30px;height:30px;border-radius:8px;background:#eef8e7;display:flex;align-items:center;justify-content:center;color:#63ad20;font-size:14px">▣</div>
+                            <div>
+                                <div style="font-size:14px;font-weight:700;color:#1e293b">Pengaturan Ekspor PDF</div>
+                                <div style="font-size:10px;color:#64748b;margin-top:2px">${escapeHtml(this.activeProject)} — ${escapeHtml(this.activeSheet)}</div>
+                            </div>
+                        </div>
+                        <div style="padding:18px">
+                            <label style="display:block;font-size:11px;font-weight:700;color:#334155;margin-bottom:7px">Pilih Ukuran Kertas</label>
+                            <select id="pdf-paper-size" style="width:100%;height:38px;border:1px solid #94b8df;border-radius:8px;padding:0 10px;font-size:11px;color:#1e293b;background:#fff;outline:none">
+                                ${paperOptions.map((o,i)=>`<option value="${o.value}" ${i===0?'selected':''}>${o.label}</option>`).join('')}
+                            </select>
+                            <div style="margin-top:10px;padding:10px 11px;border-radius:8px;background:#f8fafc;border:1px solid #e2e8f0;color:#64748b;font-size:10px;line-height:1.45">
+                                PDF akan dibuat <b style="color:#334155">Landscape</b>, memakai header perusahaan, logo, informasi project, dan tabel yang dioptimalkan untuk kertas terpilih.
+                            </div>
+                        </div>
+                        <div style="padding:12px 18px;border-top:1px solid #e5e7eb;display:flex;justify-content:flex-end;gap:8px">
+                            <button id="pdf-cancel" style="height:34px;padding:0 14px;border:1px solid #cbd5e1;background:#fff;color:#475569;border-radius:8px;font-size:11px;cursor:pointer">Batal</button>
+                            <button id="pdf-generate" style="height:34px;padding:0 16px;border:0;background:#82C341;color:#fff;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer">Lanjutkan Export</button>
+                        </div>
+                    </div>
+                </div>`;
+            document.body.appendChild(modal);
+
+            const closeModal = () => modal.remove();
+            modal.querySelector('#pdf-cancel').onclick = closeModal;
+            modal.querySelector('#pdf-generate').onclick = () => {
+                const paper = modal.querySelector('#pdf-paper-size').value;
+                closeModal();
+                this._openOptimizedPDF(rows, columns, paper, escapeHtml);
+            };
+        },
+
+        _openOptimizedPDF(rows, columns, paper = 'A3', escapeHtml = (v) => String(v ?? '')) {
+            const meta = this.allProjectsData?.[this.activeProject]?.meta || {};
+            const logoUrl = (() => {
+                try { return new URL('logo tripatra.png', window.location.href).href; }
+                catch(e) { return 'logo tripatra.png'; }
+            })();
+            const now = new Date().toLocaleString('id-ID', { dateStyle:'short', timeStyle:'medium' });
+            const safeProject = escapeHtml(this.activeProject || meta.projectName || '-');
+            const safeSheet = escapeHtml(this.activeSheet || '-');
+            const safeRevision = escapeHtml(meta.version ?? 0);
+            const safeStatus = escapeHtml(meta.status || 'Draft - Pekerjaan Engineer');
+
+            /*
+             * Jangan mengecilkan 50-100 kolom menjadi satu halaman.
+             * PDF dibagi menjadi beberapa bagian horizontal yang mudah dibaca.
+             * Setiap bagian mengulang No + Long Description sehingga baris tetap
+             * mudah dicocokkan walaupun berpindah bagian.
+             */
+            const allCols = Array.from(new Set(columns.filter(Boolean)));
+            const descriptionCol = allCols.includes('Long Description (Family)')
+                ? 'Long Description (Family)'
+                : (allCols.find(c => /description/i.test(c)) || allCols[0] || 'Description');
+            const remaining = allCols.filter(c => c !== descriptionCol);
+
+            const preferred = [
+                'Compatible Standard','Manufacturer','Material','Material Code','Long Description (Size)',
+                'Short Description','Spec','Size','Line Number Tag','Design Std','Design Type',
+                'End Type','Engagement Length','Facing','Flange Std','Gasket Std','Port Unit','Nominal Diameter'
+            ];
+            const ordered = [
+                ...preferred.filter(c => remaining.includes(c)),
+                ...remaining.filter(c => !preferred.includes(c))
+            ];
+
+            const maxPerSection = paper === 'A3' ? 10 : 7;
+            const sections = [];
+            for (let i = 0; i < ordered.length; i += maxPerSection) {
+                sections.push(ordered.slice(i, i + maxPerSection));
+            }
+            if (!sections.length) sections.push([]);
+
+            const paperConfig = {
+                A3: { font:'8.2px', head:'8.0px', pad:'4.2px', title:'15px', desc:'36%', sectionCols:10 },
+                A4: { font:'7.6px', head:'7.3px', pad:'3.8px', title:'13px', desc:'34%', sectionCols:7 },
+                Letter: { font:'7.4px', head:'7.1px', pad:'3.6px', title:'13px', desc:'34%', sectionCols:7 }
+            }[paper] || { font:'7.1px', head:'6.7px', pad:'3.4px', title:'14px', desc:'31%', sectionCols:18 };
+
+            const sectionName = (cols, index) => {
+                const text = cols.join(' ').toLowerCase();
+                if (/line|description|standard|material|spec|size|manufacturer/.test(text) && index === 0) return 'Identification & Specification';
+                if (/design|end|engagement|facing|flange|gasket|port|pressure|temperature/.test(text)) return 'Design & Connection';
+                if (/coordinate|elevation|length|thickness|weight|volume|area|dimension/.test(text)) return 'Physical & Location Data';
+                if (/status|revision|remark|approval|inspection|paint|coating|insulation/.test(text)) return 'Status & Engineering Data';
+                return `Data Section ${index + 1}`;
+            };
+
+            const makeTable = (sectionCols) => {
+                const headers = ['No', descriptionCol, ...sectionCols.filter(c => c !== descriptionCol)];
+
+                // Lebar kolom mengikuti kebutuhan isi. Long Description (Family)
+                // tidak boleh mengambil seluruh ruang karena Long Description (Size)
+                // harus tetap terbaca. Kolom dengan teks panjang mendapat porsi lebih besar.
+                const widthWeights = headers.map((h, idx) => {
+                    if (idx === 0) return 3;
+                    if (/Long Description \(Family\)/i.test(h)) return 15;
+                    if (/Long Description \(Size\)/i.test(h)) return 11;
+                    if (/Description/i.test(h)) return 8;
+                    if (/Standard|Manufacturer|Material|Code/i.test(h)) return 5.5;
+                    return 4.2;
+                });
+                const totalWeight = widthWeights.reduce((a,b) => a+b, 0);
+                const widths = widthWeights.map(w => `${(w / totalWeight * 100).toFixed(2)}%`);
+                const colgroup = widths.map(w => `<col style="width:${w}">`).join('');
+
+                const head = headers.map(h => `<th class="${h === descriptionCol ? 'desc-head' : ''} ${/Long Description \(Size\)/i.test(h) ? 'size-desc-head' : ''}">${escapeHtml(h)}</th>`).join('');
+                const body = rows.map((row, i) => {
+                    const cells = headers.map((h, j) => {
+                        const value = j === 0 ? String(i + 1).padStart(2,'0') : row[h];
+                        const sizeClass = /Long Description \(Size\)/i.test(h) ? ' size-desc-cell' : '';
+                        return `<td class="${j === 0 ? 'no-cell' : ''} ${h === descriptionCol ? 'desc-cell' : ''}${sizeClass}">${escapeHtml(value)}</td>`;
+                    }).join('');
+                    return `<tr>${cells}</tr>`;
+                }).join('');
+                return `<table><colgroup>${colgroup}</colgroup><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+            };
+
+            const sectionsHtml = sections.map((sectionCols, index) => {
+                const label = sectionName(sectionCols, index);
+                return `<section class="pdf-section ${index ? 'new-section' : ''}">
+                    <header class="pdf-header">
+                        <div class="logo-wrap"><img class="logo" src="${escapeHtml(logoUrl)}" alt="Tripatra"></div>
+                        <div class="title">
+                            <h1>MASTER LINE LIST WEBAPP</h1>
+                            <div class="sub">PROJECT: ${safeProject} &nbsp; • &nbsp; SHEET: ${safeSheet}</div>
+                            <div class="section-title">${escapeHtml(label)} &nbsp; • &nbsp; Part ${index + 1} of ${sections.length}</div>
+                        </div>
+                        <div class="meta">
+                            <div><b>REV:</b> ${safeRevision}</div>
+                            <div class="status"><b>STATUS:</b> ${safeStatus}</div>
+                            <div><b>EXPORTED:</b> ${escapeHtml(now)}</div>
+                        </div>
+                    </header>
+                    <section class="report-info">
+                        <div class="info-box"><div class="info-label">Project</div><div class="info-value">${safeProject}</div></div>
+                        <div class="info-box"><div class="info-label">Document</div><div class="info-value">${escapeHtml(meta.documentNumber || meta.documentNo || '-')}</div></div>
+                        <div class="info-box"><div class="info-label">Sheet</div><div class="info-value">${safeSheet}</div></div>
+                        <div class="info-box"><div class="info-label">Total Data</div><div class="info-value">${rows.length} data</div></div>
+                    </section>
+                    <div class="table-wrap">${makeTable(sectionCols)}</div>
+                    <div class="footer">MASTER LINE LIST WEBAPP • Tripatra Engineering Studio • Part ${index + 1}/${sections.length}</div>
+                </section>`;
+            }).join('');
+
+            const html = `<!doctype html>
+<html><head><meta charset="utf-8"><title>${safeProject} — ${safeSheet}</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:#fff;color:#142033;font-family:Arial,Helvetica,sans-serif}
+body{font-size:${paperConfig.font};-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.pdf-section{padding:8mm 9mm 7mm;min-height:100vh;display:flex;flex-direction:column}
+.new-section{break-before:page;page-break-before:always}
+.pdf-header{display:grid;grid-template-columns:125px 1fr 190px;align-items:center;gap:16px;margin-bottom:4mm;border-bottom:2px solid #173b63;padding-bottom:3mm}
+.logo-wrap{display:flex;align-items:center;justify-content:flex-start;height:22mm}.logo{max-width:105px;max-height:21mm;object-fit:contain}
+.title{text-align:center}.title h1{font-size:${paperConfig.title};margin:0 0 2px;font-weight:800;letter-spacing:.2px;color:#0f172a}.title .sub{font-size:7.5px;color:#64748b;margin-top:2px}.section-title{font-size:8.5px;color:#2d7964;font-weight:800;margin-top:4px}
+.meta{font-size:7.2px;line-height:1.5;text-align:right;color:#334155}.meta b{color:#0f172a}.meta .status{color:#4e9f17;font-weight:700}
+.report-info{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;margin-bottom:4mm}.info-box{border:1px solid #d7e0ea;border-radius:4px;padding:3px 5px;background:#f8fafc;min-height:9mm}.info-label{font-size:6.2px;text-transform:uppercase;color:#64748b;font-weight:700}.info-value{font-size:7.5px;color:#0f172a;font-weight:700;margin-top:1.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.table-wrap{width:100%;overflow:visible}table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:${paperConfig.font}}
+thead{display:table-header-group}tr{page-break-inside:avoid;break-inside:avoid}th,td{border:1px solid #aebed0;padding:${paperConfig.pad};vertical-align:middle;overflow:hidden;word-break:break-word;line-height:1.16}th{background:#2d7964;color:#fff;text-align:center;font-weight:700;font-size:${paperConfig.head};white-space:normal}td{color:#172033;background:#fff}tbody tr:nth-child(even) td{background:#f7fafc}
+th:first-child{width:5%}.no-cell{text-align:center;font-weight:700}.desc-cell{font-weight:600;line-height:1.22}.size-desc-cell{font-size:7.15px;line-height:1.15}.size-desc-head{font-size:7.1px}
+.footer{margin-top:4mm;padding-top:1.5mm;border-top:1px solid #d7e0ea;text-align:right;font-size:6px;color:#94a3b8}
+@page{size:${paper} landscape;margin:0}
+@media print{.pdf-section{min-height:auto}}
+</style></head><body>${sectionsHtml}</body></html>`;
+
+            const win = window.open('', '_blank', 'width=1400,height=900');
             if (!win) return alert('Popup diblokir browser. Izinkan popup untuk mencetak PDF.');
-            win.document.write(`<!doctype html><html><head><meta charset=\"utf-8\"><title>${escapeHtml(this.activeProject)} - ${escapeHtml(this.activeSheet)}</title><style>body{font-family:Arial,sans-serif;padding:24px;color:#111}h1{font-size:18px;margin:0 0 4px}p{font-size:11px;color:#555;margin:0 0 16px}table{border-collapse:collapse;width:100%;font-size:8px}th,td{border:1px solid #999;padding:4px;vertical-align:top}th{background:#e2e8f0;font-weight:700} @page{size:landscape;margin:10mm}</style></head><body><h1>${escapeHtml(this.activeProject)} — ${escapeHtml(this.activeSheet)}</h1><p>Export PDF • ${new Date().toLocaleString('id-ID')} • Total ${rows.length} data</p><table><thead><tr>${headers.map(h=>`<th>${escapeHtml(h)}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table></body></html>`);
+            win.document.open();
+            win.document.write(html);
             win.document.close();
             win.focus();
-            setTimeout(() => win.print(), 300);
+            setTimeout(() => win.print(), 800);
         }
     }
 }
