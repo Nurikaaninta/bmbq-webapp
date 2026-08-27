@@ -989,7 +989,28 @@
                 </div>
 
                 <div class="border border-slate-200 rounded-xl overflow-hidden bom-detail-box">
-                    <div class="px-4 py-3 bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-700">Detail Perhitungan BOM / BQ</div>
+                    <div class="px-4 py-3 bg-slate-50 border-b border-slate-200">
+                        <div class="flex items-center justify-between gap-3 mb-3">
+                            <div>
+                                <span class="text-xs font-bold text-slate-700">Detail Perhitungan BOM / BQ</span>
+                                <span class="ml-2 text-[9px] text-slate-400" x-text="bomFilteredDetails.length + ' data ditampilkan' + (bomFilteredDetails.length !== bomDetailsAll.length ? ' dari ' + bomDetailsAll.length : '')"></span>
+                            </div>
+                            <span class="text-[9px] text-slate-400">Item identik dalam kategori digabung • Valve + RF tidak dihitung</span>
+                        </div>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <div class="relative flex-1 min-w-[240px]">
+                                <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[10px]"></i>
+                                <input x-model="bomFilterSearch" type="text" placeholder="Cari description, material, line no., size..." class="w-full pl-8 pr-3 py-2 text-[10px] bg-white border border-slate-200 rounded-lg outline-none focus:border-[#82C341]">
+                            </div>
+                            <select x-model="bomFilterCategory" class="px-3 py-2 text-[10px] bg-white border border-slate-200 rounded-lg font-semibold text-slate-700 outline-none focus:border-[#82C341]">
+                                <option value="ALL">Semua Data (semua kategori)</option>
+                                <template x-for="option in bomCategoryOptions" :key="option.name">
+                                    <option :value="option.name" x-text="option.name + ' (' + option.count + ')'" ></option>
+                                </template>
+                            </select>
+                            <button @click="resetBomFilters()" type="button" class="px-3 py-2 text-[10px] font-semibold text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-100">Reset</button>
+                        </div>
+                    </div>
                     <div class="bom-detail-scroll custom-scrollbar">
                         <table class="bom-detail-table text-[10px]">
                             <colgroup>
@@ -1009,9 +1030,9 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                <template x-for="row in (allProjectsData[activeProject]?.meta?.bom?.details || [])" :key="row.no + '-' + row.component + '-' + row.description">
+                                <template x-for="(row, idx) in bomFilteredDetails" :key="row.no + '-' + row.component + '-' + row.description + '-' + idx">
                                     <tr>
-                                        <td x-text="row.no"></td>
+                                        <td x-text="idx + 1"></td>
                                         <td x-text="row.component"></td>
                                         <td class="bom-full-description" x-text="row.description || '-' "></td>
                                         <td class="text-center" x-text="Number(row.qty).toFixed(2)"></td>

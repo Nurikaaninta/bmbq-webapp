@@ -43,6 +43,8 @@ function appData() {
 
         showAddModal: false,
         showBomModal: false,
+        bomFilterCategory: 'ALL',
+        bomFilterSearch: '',
         showBoqModal: false,
         showApproveModal: false,
         taskView: 'active',
@@ -1278,22 +1280,36 @@ function appData() {
         },
 
         get currentColumns() {
+            const rows = this.currentRows || [];
+
+            // IMPORT EXCEL = DATA-DRIVEN:
+            // Setelah Excel diimport, kolom tabel selalu dibentuk dari header
+            // yang benar-benar ada pada data Excel. Tidak lagi dipaksa mengikuti
+            // schema lama sehingga kolom tidak tertukar/bergeser.
+            if (rows.length) {
+                const columns = [];
+                const seen = new Set();
+
+                rows.forEach(row => {
+                    Object.keys(row || {}).forEach(column => {
+                        if (column === 'Number' || column === 'No') return;
+                        const key = String(column);
+                        if (seen.has(key)) return;
+                        seen.add(key);
+                        columns.push(key);
+                    });
+                });
+
+                if (columns.length) return columns;
+            }
+
+            // Saat sheet masih kosong, gunakan schema bawaan yang sudah ada.
             const exactSchema = this.getExactSchema(this.activeSheet);
             if (exactSchema) {
-                // Number/No tetap tersimpan, tetapi kolom nomor sudah disediakan
-                // oleh kolom UI paling kiri.
                 return exactSchema.filter(col => col !== 'Number' && col !== 'No');
             }
 
-            const rows = this.currentRows || [];
-            if (!rows.length) {
-                return ['Material', 'Material Code', 'Spec', 'Size', 'Pressure Class', 'Line Number Tag', 'Status'];
-            }
-
-            // Untuk sheet MTO lain, ikuti urutan header dari baris pertama.
-            return Object.keys(rows[0] || {}).filter(col =>
-                col !== 'Number' && col !== 'No'
-            );
+            return ['Material', 'Material Code', 'Spec', 'Size', 'Pressure Class', 'Line Number Tag', 'Status'];
         },
 
         get freezeColumns() {
@@ -2320,9 +2336,12 @@ function appData() {
                     // Jika workbook hanya berisi satu sheet, hanya sheet itu
                     // yang dimasukkan.
                     // ------------------------------------------------------
+                    // UNIVERSAL MODE:
+                    // Semua worksheet yang mempunyai data diproses. Sheet yang
+                    // namanya dikenal tetap memakai nama kategori yang sama;
+                    // sheet baru/asing otomatis dibuat sebagai tab baru.
                     const availableMtoSheets = workbook.SheetNames
-                        .map(normalizeSheetName)
-                        .filter(name => mtoSheets.has(name));
+                        .map(normalizeSheetName);
 
                     if (availableMtoSheets.length > 0) {
                         const imported = [];
@@ -2339,18 +2358,26 @@ function appData() {
                                     return;
                                 }
 
-                                // Pastikan target sheet sudah ada di navigasi.
-                                if (!this.sheets.includes(actualSheetName)) {
-                                    this.sheets = [...this.sheets, actualSheetName];
+                                // Gunakan nama kategori lama jika cocok.
+                                // Jika tidak cocok, otomatis buat sheet baru
+                                // berdasarkan nama worksheet Excel.
+                                const knownTarget = this.sheets.find(s =>
+                                    lower(s) === lower(actualSheetName)
+                                );
+                                const targetName = knownTarget || actualSheetName;
+
+                                if (!this.sheets.includes(targetName)) {
+                                    this.sheets = [...this.sheets, targetName];
                                 }
 
-                                // Simpan setiap sheet ke storage sheet-nya
-                                // sendiri. Tidak menumpuk ke Valve.
-                                this.allProjectsData[projectKey][actualSheetName] =
+                                // Data disimpan apa adanya: urutan header, nama
+                                // header, dan isi cell berasal langsung dari Excel.
+                                this.allProjectsData[projectKey][targetName] =
                                     parsed.rows.map(row => ({ ...row }));
 
                                 imported.push({
-                                    sheet: actualSheetName,
+                                    sheet: targetName,
+                                    sourceSheet: actualSheetName,
                                     rows: parsed.rows.length,
                                     columns: parsed.headers.length
                                 });
@@ -2407,13 +2434,13 @@ function appData() {
                             .join('\n');
 
                         alert(
-                            `Import MTO berhasil!\n\n` +
+                            `Import Excel berhasil!\n\n` +
                             `Project: ${projectKey}\n\n` +
                             `Sheet yang berhasil dimuat:\n${summary}` +
                             (skipped.length
                                 ? `\n\nSheet yang dilewati:\n• ${skipped.join('\n• ')}`
                                 : '') +
-                            `\n\nSetiap sheet disimpan ke tabelnya masing-masing.`
+                            `\n\nSetiap worksheet dibuat menjadi tabel/tab masing-masing secara otomatis.`
                         );
 
                         return;
@@ -2434,7 +2461,7 @@ function appData() {
                             );
                         }
 
-                        const target = targetSheet || actualSheetName;
+                        const target = actualSheetName || targetSheet || 'Imported Data';
 
                         this.allProjectsData[projectKey][target] =
                             parsed.rows.map(row => ({ ...row }));
@@ -2470,7 +2497,7 @@ function appData() {
                     }
 
                     throw new Error(
-                        `Workbook tidak dikenali sebagai workbook MTO atau tabel khusus.\n\n` +
+                        `Workbook tidak dapat dibaca sebagai tabel.\n\n` +
                         `Worksheet tersedia: ${workbook.SheetNames.join(', ')}`
                     );
 
@@ -2564,6 +2591,41 @@ function appData() {
             project.meta.workflowUpdatedAt = new Date().toLocaleString('id-ID');
             // Jangan serialize semua tabel Excel setiap perubahan status.
             this.saveProjectMetaOnly();
+        },
+
+        get bomDetailsAll() {
+            return this.allProjectsData?.[this.activeProject]?.meta?.bom?.details || [];
+        },
+
+        get bomCategoryOptions() {
+            const order = [
+                'BaseSupport', 'Support', 'DummyLeg', 'Tee', 'Single Branch Fitting',
+                'Pipe', 'Instrument', 'Flange', 'Elbow', 'Coupling', 'Pipe Run Component',
+                'Socketweld', 'Gasket', 'Buttweld', 'Bolt Set', 'Fasteners'
+            ];
+            const counts = {};
+            this.bomDetailsAll.forEach(r => {
+                const c = String(r?.component || '').trim();
+                if (c) counts[c] = (counts[c] || 0) + 1;
+            });
+            return order.filter(c => counts[c] > 0).map(c => ({ name: c, count: counts[c] }));
+        },
+
+        get bomFilteredDetails() {
+            const q = String(this.bomFilterSearch || '').trim().toLowerCase();
+            const cat = String(this.bomFilterCategory || 'ALL');
+            return this.bomDetailsAll.filter(r => {
+                const component = String(r?.component || '').trim();
+                if (cat !== 'ALL' && component !== cat) return false;
+                if (!q) return true;
+                return [component, r?.description, r?.material, r?.lineNo, r?.size1, r?.size2, r?.unit]
+                    .some(v => String(v ?? '').toLowerCase().includes(q));
+            });
+        },
+
+        resetBomFilters() {
+            this.bomFilterCategory = 'ALL';
+            this.bomFilterSearch = '';
         },
 
         openCalculateBOM() {
@@ -2718,6 +2780,48 @@ function appData() {
                 unit: ['Unit', 'UNIT', 'UOM', 'Satuan']
             };
 
+            // Komponen BOM mengikuti nama kategori/sheet sumber, bukan digabung
+            // dari isi kolom COMPONENT/TYPE. Dengan begitu Tee, Single Branch
+            // Fitting, Pipe Run Component, Fasteners, dll tetap menjadi kategori
+            // yang jelas dan tidak berubah menjadi teks seperti
+            // "Tee / Single Branch Fitting / Piping and Equipment".
+            const canonicalBySheet = {
+                'basesupport': 'BaseSupport',
+                'base support': 'BaseSupport',
+                'support': 'Support',
+                'pipe support': 'Support',
+                'dummyleg': 'DummyLeg',
+                'dummy leg': 'DummyLeg',
+                'tee': 'Tee',
+                'single branch fitting': 'Single Branch Fitting',
+                'pipe': 'Pipe',
+                'instrument': 'Instrument',
+                'flange': 'Flange',
+                'elbow': 'Elbow',
+                'coupling': 'Coupling',
+                'pipe run component': 'Pipe Run Component',
+                'socketweld': 'Socketweld',
+                'socket weld': 'Socketweld',
+                'gasket': 'Gasket',
+                'buttweld': 'Buttweld',
+                'butt weld': 'Buttweld',
+                'bolt set': 'Bolt Set',
+                'fasteners': 'Fasteners'
+            };
+            const canonicalSheet = String(sheet || '').replace(/\u00A0/g, ' ').trim().toLowerCase();
+            let canonicalComponent = canonicalBySheet[canonicalSheet];
+
+            // Support bukan satu kategori tunggal. Di data sumber, BaseSupport
+            // dan DummyLeg berada di sheet Support sebagai Part Subtype.
+            // Pertahankan subtype tersebut agar kategori BOM tetap: BaseSupport,
+            // Support, dan DummyLeg (bukan semuanya berubah menjadi Support).
+            if (canonicalSheet === 'support' || canonicalSheet === 'pipe support') {
+                const subtype = this.getText(row, ['Part Subtype', 'PART SUBTYPE', 'Support Type', 'SUPPORT TYPE'], '').trim().toLowerCase();
+                if (subtype === 'basesupport' || subtype === 'base support') canonicalComponent = 'BaseSupport';
+                else if (subtype === 'dummyleg' || subtype === 'dummy leg') canonicalComponent = 'DummyLeg';
+                else canonicalComponent = 'Support';
+            }
+
             // LineList is a process/line definition table. It has no BOM component
             // quantity or physical pipe length, so do not invent them.
             if (sheet === 'linelist' || sheet === 'line list') {
@@ -2731,7 +2835,7 @@ function appData() {
                 if (field === 'unit') return 'LINE';
             }
 
-            // Valve/MTO sheets use the actual component description and size.
+            // Valve tetap diproses khusus agar aturan RF Valve tetap berlaku.
             if (sheet === 'valve') {
                 if (field === 'lineNo') return this.sanitizeLineNo(this.getText(row, ['Line Number Tag', 'LINE NUMBER TAG', 'Tag', 'TAG', 'Complete Line No.'], ''));
                 if (field === 'component') return 'Valve';
@@ -2743,12 +2847,14 @@ function appData() {
                 if (field === 'unit') return this.getText(row, ['Unit', 'UNIT', 'UOM'], 'EA');
             }
 
+            if (field === 'component' && canonicalComponent) return canonicalComponent;
+
             const keys = aliases[field] || [];
             if (field === 'qty') return this.getNumeric(row, keys) || 1;
             if (field === 'size1' || field === 'size2' || field === 'length') return this.getNumeric(row, keys);
             if (field === 'unit') return this.getText(row, keys, 'EA');
             if (field === 'lineNo') return this.sanitizeLineNo(this.getText(row, keys, ''));
-            return this.getText(row, keys, field === 'component' ? (row.__sheet || '-') : '-');
+            return this.getText(row, keys, field === 'component' ? (canonicalComponent || row.__sheet || '-') : '-');
         },
 
         getAllMtoRows() {
@@ -2759,9 +2865,19 @@ function appData() {
             // masuk ke rekap PIPING SUPPORT. Hanya sheet kosong yang dilewati agar
             // proses tetap ringan dan tidak menyebabkan lag.
             const referenceOnly = new Set(['LineList', 'SP Items']);
+            const bomSourceSheets = new Set([
+                'Valve', 'Tee', 'Single Branch Fitting', 'Pipe', 'Instrument', 'Flange',
+                'Elbow', 'Coupling', 'Pipe Run Component', 'Socketweld', 'Gasket',
+                'Buttweld', 'Bolt Set', 'Fasteners', 'Support'
+            ]);
             const result = [];
             Object.keys(project).forEach(sheet => {
-                if (sheet === 'meta' || referenceOnly.has(sheet)) return;
+                // Piping and Equipment, Nozzle, Vessel, Tank, Pump, Equipment,
+                // Misc Equipment, Tap Weld, dll tidak dimasukkan ke Detail BOM/BQ
+                // versi ini karena bukan kategori yang sudah ditetapkan bersama.
+                // Ini juga mencegah sheet agregat Piping and Equipment menggandakan
+                // Tee/Pipe/Flange/Elbow dan membuat Component menjadi berantakan.
+                if (sheet === 'meta' || referenceOnly.has(sheet) || !bomSourceSheets.has(sheet)) return;
                 const rows = Array.isArray(project[sheet]) ? project[sheet] : [];
                 if (!rows.length) return;
                 rows.forEach((row, index) => {
@@ -2969,6 +3085,7 @@ function appData() {
 
             const details = [];
             let excludedNoLine = 0;
+            let excludedRFValve = 0;
             rows.forEach((row, i) => {
                 const sheetName = row.__sheet;
                 const qty = this.getBomField(row, 'qty', sheetName);
@@ -2989,6 +3106,18 @@ function appData() {
                     return;
                 }
 
+                // REVISI SPV: khusus VALVE yang memiliki RF (Raised Face),
+                // item tidak boleh masuk ke Detail BOM/BQ dan tidak ikut total.
+                // RF pada FLANGE tetap dihitung; jadi pengecualian hanya Valve + RF.
+                const componentText = String(component || '').trim().toUpperCase();
+                const descriptionText = String(description || '').trim().toUpperCase();
+                const isValve = /\bVALVE\b/.test(componentText) || /\bVALVE\b/.test(descriptionText);
+                const hasRF = /\bRF\b/.test(descriptionText) || /\bRF\b/.test(componentText);
+                if (isValve && hasRF) {
+                    excludedRFValve++;
+                    return;
+                }
+
                 const calc = formulaFor(component, description, sheetName, size1, size2, qty, length);
                 details.push({
                     no: details.length + 1,
@@ -3004,6 +3133,68 @@ function appData() {
                     category: classify(component, description, sheetName)
                 });
             });
+
+            // Gabungkan item yang identik agar Detail BOM/BQ tidak panjang
+            // karena baris yang sama berulang. Qty, length, dan Inch-Dia
+            // dijumlahkan sehingga nilai total tetap sama.
+            const uniqueMap = new Map();
+            details.forEach((row) => {
+                const key = [
+                    row.component,
+                    row.description,
+                    row.material,
+                    row.installation,
+                    Number(row.size1) || 0,
+                    Number(row.size2) || 0,
+                    row.unit,
+                    row.category
+                ].map(v => String(v ?? '').trim().toUpperCase()).join('|');
+
+                if (!uniqueMap.has(key)) {
+                    uniqueMap.set(key, {
+                        ...row,
+                        lineNo: row.lineNo || '-',
+                        lineNos: row.lineNo ? [row.lineNo] : [],
+                    });
+                } else {
+                    const existing = uniqueMap.get(key);
+                    existing.qty = (Number(existing.qty) || 0) + (Number(row.qty) || 0);
+                    existing.length = (Number(existing.length) || 0) + (Number(row.length) || 0);
+                    existing.inchDia = (Number(existing.inchDia) || 0) + (Number(row.inchDia) || 0);
+                    if (row.lineNo && !existing.lineNos.includes(row.lineNo)) {
+                        existing.lineNos.push(row.lineNo);
+                    }
+                    if (existing.mentorFormula !== row.mentorFormula) {
+                        existing.mentorFormula = 'Gabungan item identik';
+                    }
+                    existing.lineNo = existing.lineNos.length > 1 ? 'Multiple Lines' : existing.lineNo;
+                }
+            });
+
+            const categoryOrder = [
+                'BaseSupport', 'Support', 'DummyLeg', 'Tee', 'Single Branch Fitting',
+                'Pipe', 'Instrument', 'Flange', 'Elbow', 'Coupling', 'Pipe Run Component',
+                'Socketweld', 'Gasket', 'Buttweld', 'Bolt Set', 'Fasteners', 'Valve'
+            ];
+            const categoryRank = new Map(categoryOrder.map((name, index) => [name, index]));
+
+            const compactDetails = Array.from(uniqueMap.values())
+                .sort((a, b) => {
+                    const ca = categoryRank.has(a.component) ? categoryRank.get(a.component) : 999;
+                    const cb = categoryRank.has(b.component) ? categoryRank.get(b.component) : 999;
+                    if (ca !== cb) return ca - cb;
+                    const da = String(a.description || '').toUpperCase();
+                    const db = String(b.description || '').toUpperCase();
+                    if (da !== db) return da.localeCompare(db);
+                    return (Number(a.size1) || 0) - (Number(b.size1) || 0);
+                })
+                .map((row, index) => ({
+                    ...row,
+                    no: index + 1
+                }));
+
+            details.length = 0;
+            details.push(...compactDetails);
 
             const totalQty = details.reduce((sum, r) => sum + (Number(r.qty) || 0), 0);
             const pipeQty = details.filter(r => r.category === 'PIPE').reduce((sum, r) => sum + (Number(r.length) || 0), 0);
