@@ -45,6 +45,9 @@ function appData() {
         showBomModal: false,
         bomFilterCategory: 'ALL',
         bomFilterSearch: '',
+        // Item BOM yang dipilih Engineer untuk dikirim ke Estimator.
+        // Data yang tidak dipilih tetap berada di Detail BOM.
+        bomSelectedKeys: [],
         showBoqModal: false,
         showApproveModal: false,
         taskView: 'active',
@@ -2623,6 +2626,63 @@ function appData() {
             });
         },
 
+        getBomSelectionKey(row, index = -1) {
+            // Gunakan identitas item BOM, bukan nomor urut tampilan, agar pilihan
+            // tetap mengikuti item walaupun tabel difilter atau dihitung ulang.
+            return [
+                row?.sheet, row?.no, row?.component, row?.description,
+                row?.size1, row?.size2, row?.unit
+            ].map(v => String(v ?? '').trim()).join('::');
+        },
+
+        isBomRowSelected(row, index = -1) {
+            return this.bomSelectedKeys.includes(this.getBomSelectionKey(row, index));
+        },
+
+        toggleBomRowSelection(row, checked, index = -1) {
+            const key = this.getBomSelectionKey(row, index);
+            const selected = new Set(this.bomSelectedKeys);
+            if (checked) selected.add(key);
+            else selected.delete(key);
+            this.bomSelectedKeys = Array.from(selected);
+            this.persistBomSelection();
+        },
+
+        selectAllBomDisplayed() {
+            const selected = new Set(this.bomSelectedKeys);
+            this.bomFilteredDetails.forEach((row, index) => {
+                selected.add(this.getBomSelectionKey(row, index));
+            });
+            this.bomSelectedKeys = Array.from(selected);
+            this.persistBomSelection();
+        },
+
+        clearBomSelection() {
+            this.bomSelectedKeys = [];
+            this.persistBomSelection();
+        },
+
+        get selectedBomCount() {
+            return this.bomSelectedKeys.length;
+        },
+
+        get selectedBomDetails() {
+            const selected = new Set(this.bomSelectedKeys);
+            return this.bomDetailsAll.filter((row, index) => selected.has(this.getBomSelectionKey(row, index)));
+        },
+
+        persistBomSelection() {
+            const project = this.allProjectsData?.[this.activeProject];
+            if (!project?.meta?.bom) return;
+            project.meta.bom.selectedKeys = [...this.bomSelectedKeys];
+            this.saveProjectMetaOnly();
+        },
+
+        loadBomSelection() {
+            const saved = this.allProjectsData?.[this.activeProject]?.meta?.bom?.selectedKeys;
+            this.bomSelectedKeys = Array.isArray(saved) ? saved.map(String) : [];
+        },
+
         resetBomFilters() {
             this.bomFilterCategory = 'ALL';
             this.bomFilterSearch = '';
@@ -2634,6 +2694,7 @@ function appData() {
                 return;
             }
 
+            this.loadBomSelection();
             const status = this.workflowStatus;
 
             // Jika sudah final, Engineer melihat laporan final.
@@ -3215,7 +3276,17 @@ function appData() {
                 excludedNoLine,
                 details
             };
+            // Pertahankan pilihan yang masih cocok dengan item hasil hitung ulang.
+            // Perhitungan tetap menghasilkan seluruh BOM; pilihan hanya menentukan
+            // item mana yang dikirim ke Estimator.
+            const previousSelection = new Set(
+                Array.isArray(this.bomSelectedKeys) ? this.bomSelectedKeys.map(String) : []
+            );
             project.meta.bom = bom;
+            this.bomSelectedKeys = bom.details
+                .map((row, index) => this.getBomSelectionKey(row, index))
+                .filter(key => previousSelection.has(key));
+            project.meta.bom.selectedKeys = [...this.bomSelectedKeys];
             project.meta.workflowStatus = 'BOM_CALCULATED';
             project.meta.revisionNotes = '';
             this.saveProjectMetaOnly();
@@ -3224,16 +3295,31 @@ function appData() {
 
         async submitBOMToEstimator() {
             if (this.loginForm.role !== 'Piping Engineer') return alert('Hanya Piping Engineer yang dapat mengirim BOM.');
-            const bom = this.allProjectsData[this.activeProject]?.meta?.bom;
+            const project = this.allProjectsData[this.activeProject];
+            const bom = project?.meta?.bom;
             if (!bom?.details?.length) return alert('Hitung BOM terlebih dahulu.');
             if (bom.matchingRule !== 'MTO_LINE_LIST_EXACT_MATCH_V2') {
                 return alert('BOM belum menggunakan aturan pencocokan MTO dengan Line List. Silakan Hitung Ulang BOM terlebih dahulu.');
             }
+
+            const selected = this.selectedBomDetails;
+            if (!selected.length) {
+                return alert('Pilih minimal 1 item BOM yang akan dikirim ke Estimator.');
+            }
+
+            // BOM lengkap tetap disimpan. Hanya daftar item terpilih yang menjadi
+            // input Estimator, sehingga item yang tidak dipilih tidak hilang.
+            bom.selectedKeys = [...this.bomSelectedKeys];
+            bom.selectedForEstimator = selected.map(row => ({ ...row }));
+            bom.selectedTotalItems = selected.length;
+            bom.selectedTotalQty = selected.reduce((sum, row) => sum + (Number(row.qty) || 0), 0);
+            bom.selectedTotalInchDia = selected.reduce((sum, row) => sum + (Number(row.inchDia) || 0), 0);
+
             // Pastikan snapshot BOM benar-benar tersimpan sebelum berpindah role.
-            await this.saveWorkflowSnapshot(this.activeProject, this.allProjectsData[this.activeProject]);
-            this.setWorkflowStatus('SUBMITTED_TO_ESTIMATOR', 'BOM sudah dikirim oleh Piping Engineer. Menunggu Estimator melakukan kalkulasi BOQ.');
+            await this.saveWorkflowSnapshot(this.activeProject, project);
+            this.setWorkflowStatus('SUBMITTED_TO_ESTIMATOR', `${selected.length} item BOM dipilih dan dikirim oleh Piping Engineer. Menunggu Estimator melakukan kalkulasi BOQ.`);
             this.showBomModal = false;
-            alert('BOM / BQ berhasil dikirim ke Estimator.');
+            alert(`${selected.length} item BOM / BQ berhasil dikirim ke Estimator.`);
         },
 
         async generateBOQ() {
@@ -3292,7 +3378,23 @@ function appData() {
             const priceMap = new Map(previous.map(x => [x.key, Number(x.unitPrice) || 0]));
             const previousGroupPriceMap = new Map(previousGroups.map(g => [g.key, Number(g.unitPrice) || 0]));
 
-            const items = currentBom.details.map((r, i) => ({
+            const selectedKeys = Array.isArray(currentBom.selectedKeys)
+                ? new Set(currentBom.selectedKeys.map(String))
+                : new Set();
+
+            // Estimator menggunakan hanya item yang dipilih Engineer.
+            // Untuk BOM lama yang belum memiliki selection, jangan mengirim
+            // seluruh data secara diam-diam.
+            if (!selectedKeys.size) {
+                alert('Belum ada item BOM yang dipilih oleh Piping Engineer untuk dikirim ke Estimator.');
+                return;
+            }
+
+            const selectedDetails = currentBom.details.filter((r, i) =>
+                selectedKeys.has(this.getBomSelectionKey(r, i))
+            );
+
+            const items = selectedDetails.map((r, i) => ({
                 ...r,
                 key: `${r.sheet}::${r.no}`,
                 unitPrice: priceMap.get(`${r.sheet}::${r.no}`) || 0,
@@ -4141,32 +4243,15 @@ function appData() {
 
             const makeTable = (sectionCols) => {
                 const headers = ['No', descriptionCol, ...sectionCols.filter(c => c !== descriptionCol)];
-
-                // Lebar kolom mengikuti kebutuhan isi. Long Description (Family)
-                // tidak boleh mengambil seluruh ruang karena Long Description (Size)
-                // harus tetap terbaca. Kolom dengan teks panjang mendapat porsi lebih besar.
-                const widthWeights = headers.map((h, idx) => {
-                    if (idx === 0) return 3;
-                    if (/Long Description \(Family\)/i.test(h)) return 15;
-                    if (/Long Description \(Size\)/i.test(h)) return 11;
-                    if (/Description/i.test(h)) return 8;
-                    if (/Standard|Manufacturer|Material|Code/i.test(h)) return 5.5;
-                    return 4.2;
-                });
-                const totalWeight = widthWeights.reduce((a,b) => a+b, 0);
-                const widths = widthWeights.map(w => `${(w / totalWeight * 100).toFixed(2)}%`);
-                const colgroup = widths.map(w => `<col style="width:${w}">`).join('');
-
-                const head = headers.map(h => `<th class="${h === descriptionCol ? 'desc-head' : ''} ${/Long Description \(Size\)/i.test(h) ? 'size-desc-head' : ''}">${escapeHtml(h)}</th>`).join('');
+                const head = headers.map(h => `<th class="${h === descriptionCol ? 'desc-head' : ''}">${escapeHtml(h)}</th>`).join('');
                 const body = rows.map((row, i) => {
                     const cells = headers.map((h, j) => {
                         const value = j === 0 ? String(i + 1).padStart(2,'0') : row[h];
-                        const sizeClass = /Long Description \(Size\)/i.test(h) ? ' size-desc-cell' : '';
-                        return `<td class="${j === 0 ? 'no-cell' : ''} ${h === descriptionCol ? 'desc-cell' : ''}${sizeClass}">${escapeHtml(value)}</td>`;
+                        return `<td class="${j === 0 ? 'no-cell' : ''} ${h === descriptionCol ? 'desc-cell' : ''}">${escapeHtml(value)}</td>`;
                     }).join('');
                     return `<tr>${cells}</tr>`;
                 }).join('');
-                return `<table><colgroup>${colgroup}</colgroup><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+                return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
             };
 
             const sectionsHtml = sections.map((sectionCols, index) => {
@@ -4211,7 +4296,7 @@ body{font-size:${paperConfig.font};-webkit-print-color-adjust:exact;print-color-
 .report-info{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;margin-bottom:4mm}.info-box{border:1px solid #d7e0ea;border-radius:4px;padding:3px 5px;background:#f8fafc;min-height:9mm}.info-label{font-size:6.2px;text-transform:uppercase;color:#64748b;font-weight:700}.info-value{font-size:7.5px;color:#0f172a;font-weight:700;margin-top:1.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .table-wrap{width:100%;overflow:visible}table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:${paperConfig.font}}
 thead{display:table-header-group}tr{page-break-inside:avoid;break-inside:avoid}th,td{border:1px solid #aebed0;padding:${paperConfig.pad};vertical-align:middle;overflow:hidden;word-break:break-word;line-height:1.16}th{background:#2d7964;color:#fff;text-align:center;font-weight:700;font-size:${paperConfig.head};white-space:normal}td{color:#172033;background:#fff}tbody tr:nth-child(even) td{background:#f7fafc}
-th:first-child{width:5%}.no-cell{text-align:center;font-weight:700}.desc-cell{font-weight:600;line-height:1.22}.size-desc-cell{font-size:7.15px;line-height:1.15}.size-desc-head{font-size:7.1px}
+th:first-child{width:5%}.no-cell{text-align:center;font-weight:700}.desc-head,.desc-cell{width:${paperConfig.desc}}.desc-cell{font-weight:600;line-height:1.25}
 .footer{margin-top:4mm;padding-top:1.5mm;border-top:1px solid #d7e0ea;text-align:right;font-size:6px;color:#94a3b8}
 @page{size:${paper} landscape;margin:0}
 @media print{.pdf-section{min-height:auto}}
