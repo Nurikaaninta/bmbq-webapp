@@ -299,7 +299,7 @@
 
                             <label class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-amber-700 border border-slate-200 rounded-xl text-xs font-semibold transition flex items-center space-x-1 cursor-pointer">
                                 <i class="fa-solid fa-file-arrow-up"></i><span>Import Excel</span>
-                                <input type="file" accept=".xlsx, .xls" class="hidden" @change="importExcelFile($event)">
+                                <input type="file" accept=".xlsx,.xls" multiple class="hidden" @change="importExcelFile($event)">
                             </label>
 
                             <div class="relative" x-data="{ exportOpen: false }">
@@ -585,7 +585,7 @@
                                                 <span class="px-2 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-bold rounded">High Priority</span>
                                                 <span class="text-xs font-bold text-slate-800">Review MTO & Spesifikasi Valve Proyek Saat Ini</span>
                                             </div>
-                                            <p class="text-[11px] text-slate-500">Periksa kembali data material take off (MTO) pada sheet Valve sebelum diserahkan ke Lead Estimator.</p>
+                                            <p class="text-[11px] text-slate-500" x-text="loginForm.role === 'Estimator Proposal' ? (workflowStatus === 'ESTIMATOR_REVISION_REQUIRED' ? 'Perbaiki BOQ berdasarkan catatan Lead, lalu kirim ulang ke Lead. Jika revisi menyangkut BOM/teknis, kirim kembali ke Engineer.' : 'Hitung BOQ dan lengkapi harga sebelum diserahkan ke Lead Estimator.') : (workflowStatus === 'ENGINEER_REVISION_REQUIRED' ? 'Perbaiki data MTO/BOM sesuai catatan revisi, hitung ulang BOM, lalu kirim kembali ke Estimator.' : 'Periksa kembali data material take off (MTO) sebelum diserahkan ke Estimator.')"></p>
                                         </div>
                                         <button type="button" @click="openTaskMTOValve()"
                                             class="px-3 py-1.5 bg-slate-800 text-white rounded-lg text-xs font-semibold hover:bg-slate-700 whitespace-nowrap">
@@ -661,6 +661,45 @@
                 </div>
 
             </main>
+        </div>
+    </div>
+
+    <!-- MODAL IMPORT EXCEL PREVIEW -->
+    <div x-show="showImportPreview" x-cloak class="fixed inset-0 z-[120] bg-slate-950/50 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="w-full max-w-3xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+            <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+                <div>
+                    <h3 class="text-sm font-bold text-slate-900">Preview Import Excel</h3>
+                    <p class="text-[10px] text-slate-500 mt-1">Periksa hasil terlebih dahulu. Setiap import dibuat sebagai dataset terpisah; data lama tidak disentuh.</p>
+                </div>
+                <button @click="cancelImportPreview()" class="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-400"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div class="rounded-xl border border-slate-200 bg-slate-50 p-3"><div class="text-[9px] text-slate-500">File</div><div class="text-lg font-bold text-slate-800" x-text="importPreview.files.length"></div></div>
+                    <div class="rounded-xl border border-emerald-200 bg-emerald-50 p-3"><div class="text-[9px] text-emerald-700">Data baru</div><div class="text-lg font-bold text-emerald-700" x-text="importPreview.newRows"></div></div>
+                    <div class="rounded-xl border border-amber-200 bg-amber-50 p-3"><div class="text-[9px] text-amber-700">Duplikat dilewati</div><div class="text-lg font-bold text-amber-700" x-text="importPreview.duplicateRows"></div></div>
+                    <div class="rounded-xl border border-slate-200 bg-white p-3"><div class="text-[9px] text-slate-500">Worksheet</div><div class="text-lg font-bold text-slate-800" x-text="importPreview.sheets.length"></div></div>
+                </div>
+                <div class="border border-slate-200 rounded-xl overflow-hidden">
+                    <div class="px-3 py-2 bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-700">Rincian data yang akan ditambahkan</div>
+                    <div class="max-h-64 overflow-auto">
+                        <table class="w-full text-[10px]"><thead class="sticky top-0 bg-white border-b border-slate-200"><tr><th class="text-left p-2">File</th><th class="text-left p-2">Worksheet</th><th class="text-left p-2">Dataset baru</th><th class="text-right p-2">Data baru</th></tr></thead>
+                        <tbody><template x-for="item in importPreview.sheets" :key="item.fileName + '|' + item.sourceSheet + '|' + item.targetSheet"><tr class="border-b border-slate-100"><td class="p-2" x-text="item.fileName"></td><td class="p-2" x-text="item.sourceSheet"></td><td class="p-2 font-semibold" x-text="item.targetSheet"></td><td class="p-2 text-right font-bold text-emerald-700" x-text="item.rows"></td></tr></template></tbody></table>
+                    </div>
+                </div>
+                <div x-show="importPreview.errors.length" class="rounded-xl border border-rose-200 bg-rose-50 p-3">
+                    <div class="text-[10px] font-bold text-rose-700 mb-1">Worksheet yang tidak dapat diproses</div>
+                    <ul class="text-[9px] text-rose-600 space-y-1"><template x-for="err in importPreview.errors" :key="err"><li x-text="err"></li></template></ul>
+                </div>
+                <div class="rounded-xl bg-blue-50 border border-blue-100 p-3 text-[9px] text-blue-700">
+                    <i class="fa-solid fa-shield-halved mr-1"></i> Data existing tetap dipertahankan. Excel yang diimport dibuat sebagai dataset/sheet terpisah, meskipun strukturnya sama dengan Line List. Data tidak digabung atau ditimpa.
+                </div>
+            </div>
+            <div class="px-5 py-4 border-t border-slate-200 flex justify-end gap-2">
+                <button @click="cancelImportPreview()" class="px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-semibold hover:bg-slate-200">Batal</button>
+                <button @click="commitImportPreview()" :disabled="!importPreview.newRows" class="px-5 py-2.5 rounded-xl bg-[#82C341] text-white text-xs font-semibold hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"><i class="fa-solid fa-file-import mr-1"></i> Import Data Baru</button>
+            </div>
         </div>
     </div>
 
@@ -798,16 +837,16 @@
                             <i class="fa-solid fa-upload"></i>
                         </div>
                         <div class="flex-1 min-w-0">
-                            <label class="text-[10px] font-bold text-slate-700 block">Pilih File Excel</label>
+                            <label class="text-[10px] font-bold text-slate-700 block">Pilih File Excel (bisa lebih dari satu)</label>
                             <p class="text-[9px] text-slate-500 mt-0.5 truncate"
-                               x-text="createProjectForm.fileName || 'Belum ada file dipilih (.xlsx / .xls)'"></p>
+                               x-text="createProjectForm.fileNames?.length ? createProjectForm.fileNames.join(', ') : 'Belum ada file dipilih (.xlsx / .xls)'"></p>
                         </div>
                         <label class="px-3 py-2 bg-white border border-amber-200 text-amber-700 rounded-lg text-[10px] font-bold cursor-pointer hover:bg-amber-100 transition shrink-0">
                             Browse
-                            <input type="file" accept=".xlsx,.xls" class="hidden" @change="handleCreateProjectFile($event)">
+                            <input type="file" accept=".xlsx,.xls" multiple class="hidden" @change="handleCreateProjectFile($event)">
                         </label>
                     </div>
-                    <div x-show="createProjectForm.fileName" x-cloak class="mt-3 text-[9px] text-emerald-700 flex items-center gap-1">
+                    <div x-show="createProjectForm.fileNames?.length" x-cloak class="mt-3 text-[9px] text-emerald-700 flex items-center gap-1">
                         <i class="fa-solid fa-circle-check"></i>
                         <span>File siap diimport saat project dibuat.</span>
                     </div>
@@ -1071,9 +1110,12 @@
             </div>
 
             <div class="p-4 border-t border-slate-200 flex items-center justify-between gap-2 shrink-0">
-                <span class="text-[10px] text-slate-500">Hasil BOM menjadi input Estimator. Nilai harga belum dihitung di tahap Engineer.</span>
+                <div class="min-w-0">
+                    <span class="text-[10px] text-slate-500">Hasil BOM menjadi input Estimator. Nilai harga belum dihitung di tahap Engineer.</span>
+                    <span id="bom-recalc-status" class="ml-2 text-[10px] font-semibold text-slate-500" aria-live="polite"></span>
+                </div>
                 <div class="flex gap-2">
-                    <button @click.stop.prevent="recalculateBOM()" type="button" class="px-4 py-2 bg-slate-100 border border-slate-200 text-slate-700 rounded-xl text-xs font-semibold hover:bg-slate-200 cursor-pointer">Hitung Ulang</button>
+                    <button id="recalculate-bom-btn" type="button" class="px-4 py-2 bg-slate-100 border border-slate-200 text-slate-700 rounded-xl text-xs font-semibold hover:bg-slate-200 cursor-pointer relative z-[20]" style="pointer-events:auto !important;">Hitung Ulang</button>
                     <button @click="submitBOMToEstimator"
                         :disabled="selectedBomCount === 0"
                         :class="selectedBomCount === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:opacity-90'"
@@ -1238,6 +1280,7 @@
             </div>
             <div class="p-4 border-t border-slate-200 flex items-center justify-end gap-2 shrink-0">
                 <button @click="showBoqModal = false" class="px-4 py-2 bg-slate-200 text-slate-700 rounded-xl text-xs">Tutup</button>
+                <button x-show="workflowStatus === 'ESTIMATOR_REVISION_REQUIRED'" @click="sendBOQBackToEngineer" class="px-4 py-2 bg-amber-500 text-white font-semibold rounded-xl text-xs shadow">Kirim ke Engineer untuk Revisi BOM <i class="fa-solid fa-arrow-left ml-1"></i></button>
                 <button @click="submitBOQToLead" class="px-4 py-2 bg-indigo-600 text-white font-semibold rounded-xl text-xs shadow">Kirim BOQ ke Lead <i class="fa-solid fa-arrow-right ml-1"></i></button>
                 <button @click="exportBOQ" class="px-4 py-2 bg-[#82C341] text-white font-semibold rounded-xl text-xs shadow">Export BOQ</button>
             </div>
@@ -1689,5 +1732,90 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 </script>
 
+
+<script>
+/* Reliable native handler for BOM recalculation.
+   It deliberately does not rely on Alpine's @click binding. */
+document.addEventListener('DOMContentLoaded', () => {
+    const btn = document.getElementById('recalculate-bom-btn');
+    const status = document.getElementById('bom-recalc-status');
+    if (!btn || btn.dataset.recalcBound === '1') return;
+    btn.dataset.recalcBound = '1';
+
+    const setStatus = (text, ok = null) => {
+        if (!status) return;
+        status.textContent = text;
+        status.className = 'ml-2 text-[10px] font-semibold ' + (ok === true ? 'text-emerald-600' : ok === false ? 'text-rose-600' : 'text-slate-500');
+    };
+
+    btn.addEventListener('click', () => {
+        if (btn.dataset.recalcRunning === '1') return;
+        btn.dataset.recalcRunning = '1';
+        btn.disabled = true;
+        btn.setAttribute('aria-busy', 'true');
+        btn.textContent = 'Menghitung...';
+        setStatus('Memproses BOM...');
+
+        // Beri browser kesempatan menggambar status “Menghitung...” sebelum
+        // pekerjaan sinkron yang mungkin cukup berat dijalankan.
+        requestAnimationFrame(() => {
+            setTimeout(() => {
+                try {
+                    const root = document.body;
+                    const data = window.Alpine && typeof window.Alpine.$data === 'function'
+                        ? window.Alpine.$data(root)
+                        : null;
+                    if (!data || typeof data.calculateBOM !== 'function') {
+                        throw new Error('Data aplikasi/Calculate BOM belum siap.');
+                    }
+
+                    const before = Array.isArray(data.bomDetailsAll) ? data.bomDetailsAll.length : 0;
+                    const result = data.calculateBOM(true);
+
+                    const finish = () => {
+                        const after = Array.isArray(data.bomDetailsAll) ? data.bomDetailsAll.length : 0;
+                        data.showBomModal = true;
+                        setStatus(`Selesai • ${after} item dihitung`, true);
+                        console.info('[BOM] Hitung Ulang selesai', { before, after });
+                        btn.disabled = false;
+                        btn.removeAttribute('aria-busy');
+                        btn.textContent = 'Hitung Ulang';
+                        btn.dataset.recalcRunning = '0';
+                    };
+
+                    if (result && typeof result.then === 'function') {
+                        result.then(finish).catch((error) => {
+                            console.error('[BOM] Recalculate error:', error);
+                            setStatus('Gagal menghitung', false);
+                            alert('Perhitungan BOM gagal.\n\nDetail: ' + (error?.message || error));
+                            btn.disabled = false;
+                            btn.removeAttribute('aria-busy');
+                            btn.textContent = 'Hitung Ulang';
+                            btn.dataset.recalcRunning = '0';
+                        });
+                    } else {
+                        finish();
+                    }
+                } catch (error) {
+                    console.error('[BOM] Native recalculate error:', error);
+                    setStatus('Gagal menghitung', false);
+                    alert('Perhitungan BOM gagal.\n\nDetail: ' + (error?.message || error));
+                    btn.disabled = false;
+                    btn.removeAttribute('aria-busy');
+                    btn.textContent = 'Hitung Ulang';
+                    btn.dataset.recalcRunning = '0';
+                }
+            }, 0);
+        });
+    });
+});
+</script>
+        <div x-show="importSuccessVisible"
+             x-transition
+             x-cloak
+             class="import-success-toast"
+             role="status"
+             aria-live="polite"
+             x-text="importSuccessMessage"></div>
 </body>
 </html>

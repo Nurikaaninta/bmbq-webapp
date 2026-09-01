@@ -65,15 +65,31 @@ function appData() {
             name: '',
             description: '',
             initialization: 'empty',
-            file: null,
-            fileName: ''
+            files: [],
+            fileNames: []
         },
 
+        // Import Excel professional workflow
+        showImportPreview: false,
+        isImportingExcel: false,
+        importPreview: {
+            files: [],
+            sheets: [],
+            totalRows: 0,
+            newRows: 0,
+            duplicateRows: 0,
+            skippedRows: 0,
+            errors: [],
+            payload: []
+        },
+
+        importSuccessVisible: false,
+        importSuccessMessage: '',
         activeModuleName: '',
         moduleDescription: '',
 
         activePriceLevel: 'Menengah',
-        boqCurrency: 'USD',
+        boqCurrency: 'IDR',
         boqPriceSearch: '',
         boqPriceFilter: 'all',
         boqPricePage: 1,
@@ -269,6 +285,16 @@ function appData() {
 
             this.normalizeAllProjectsData();
             this.loadBomBoqStorage();
+
+            // BOQ proyek menggunakan IDR sebagai mata uang standar.
+            // Data lama yang masih menyimpan currency USD dinormalisasi ke IDR
+            // agar tampilan kalkulasi dan hasil laporan konsisten dengan format
+            // BOQ/MTO yang digunakan sistem. Nilai numeriknya tidak diubah.
+            Object.values(this.allProjectsData || {}).forEach(project => {
+                if (project?.meta?.boq) project.meta.boq.currency = 'IDR';
+            });
+            this.boqCurrency = 'IDR';
+
             this.refreshSheetList();
             this.loadApprovalHistory();
             this.saveStorage();
@@ -397,7 +423,7 @@ function appData() {
                     'Fluid Service',
                     'Phase',
                     'Mass Flow\n[kg/h]',
-                    'Volume Flow\n[m1.5/h]',
+                    'Volume Flow\n[m3/h]',
                     'Operating',
                     'Design',
                     'Operating Temperature',
@@ -517,53 +543,131 @@ function appData() {
                 raw: true,
                 blankrows: false
             });
+            if (!matrix.length) throw new Error('Worksheet kosong.');
 
-            // Cari baris header pertama yang mempunyai minimal 2 cell berisi.
-            const headerIndex = matrix.findIndex(row =>
-                Array.isArray(row) &&
-                row.filter(v => String(v ?? '').trim() !== '').length >= 2
-            );
+            const clean = value => String(value ?? '')
+                .replace(/\u00A0/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .toLowerCase();
 
-            if (headerIndex < 0) {
-                throw new Error('Header Excel tidak ditemukan.');
+            // ==========================================================
+            // LINE LIST: Excel kantor biasanya memakai 2 baris header
+            // (header utama + sub-header). Jangan jadikan salah satu
+            // baris data sebagai header. Deteksi berdasarkan signature
+            // kolom Line Size + Process Fluid + Pipe.Spec + Seq. No.
+            // ==========================================================
+            const lineListSchema = this.getExactSchema('LineList');
+            const isLineListHeader = row => {
+                const values = (row || []).map(clean);
+                const has = text => values.some(v => v === clean(text) || v.includes(clean(text)));
+                return has('Line Size (Inch)') && has('Process Fluid Identifier') &&
+                       (has('Pipe.Spec') || has('Seq. No'));
+            };
+
+            let lineListHeaderIndex = matrix.findIndex(isLineListHeader);
+            if (lineListHeaderIndex >= 0) {
+                // Header kedua hanya dipakai untuk menentukan posisi data.
+                // Nama kolom tetap memakai schema Line List agar hasil import
+                // konsisten dengan tabel aplikasi, bukan nama angka/acak dari
+                // baris Excel yang salah terbaca.
+                const nextRow = matrix[lineListHeaderIndex + 1] || [];
+                const nextText = nextRow.map(clean);
+                const hasSubHeader = nextText.some(v =>
+                    ['type', 'thickness [mm]', 'operating', 'design', 'medium', 'pressure [barg]']
+                        .some(token => v === token)
+                );
+                const dataStart = lineListHeaderIndex + (hasSubHeader ? 2 : 1);
+                const headers = [...lineListSchema];
+                const rows = [];
+
+                for (let r = dataStart; r < matrix.length; r++) {
+                    const sourceRow = Array.isArray(matrix[r]) ? matrix[r] : [];
+                    const hasData = sourceRow.some(v => String(v ?? '').trim() !== '');
+                    if (!hasData) continue;
+
+                    // Lewati baris yang ternyata masih merupakan sub-header.
+                    const rowText = sourceRow.map(clean).join(' | ');
+                    if (rowText.includes('line size (inch)') && rowText.includes('process fluid identifier')) continue;
+
+                    const row = {};
+                    headers.forEach((header, c) => {
+                        row[header] = sourceRow[c] ?? '';
+                    });
+
+                    // Nomor baris tetap mengikuti Excel jika tersedia.
+                    // Bila kosong, sistem akan menampilkannya sebagai nomor urut.
+                    if (String(row['No'] ?? '').trim() === '') row['No'] = '';
+                    rows.push(row);
+                }
+
+                if (!rows.length) throw new Error('Header Line List ditemukan, tetapi tidak ada data setelah header.');
+                return {
+                    headers,
+                    rows,
+                    headerIndex: lineListHeaderIndex,
+                    dataStart,
+                    dataType: 'LineList'
+                };
             }
 
-            const rawHeaders = matrix[headerIndex] || [];
+            // ==========================================================
+            // MASTER/MTO LAIN: tetap fleksibel. Cari header yang paling
+            // masuk akal dan pertahankan nama header Excel secara 1:1.
+            // ==========================================================
+            let bestIndex = -1, bestScore = -Infinity;
+            matrix.forEach((row, i) => {
+                if (!Array.isArray(row)) return;
+                const nonEmpty = row.filter(v => String(v ?? '').trim() !== '').length;
+                if (nonEmpty < 2) return;
+                const textCount = row.filter(v => typeof v === 'string' && v.trim()).length;
+                const next = matrix[i + 1] || [];
+                const nextNonEmpty = next.filter(v => String(v ?? '').trim() !== '').length;
+                let score = nonEmpty * 5 + textCount * 2;
+                if (nextNonEmpty >= Math.max(2, Math.floor(nonEmpty * 0.35))) score += 12;
+                if (i === 0) score -= 2;
+                if (nonEmpty > 4) score += 5;
+                if (score > bestScore) { bestScore = score; bestIndex = i; }
+            });
+
+            if (bestIndex < 0) throw new Error('Header Excel tidak ditemukan.');
+
+            const rawHeaders = matrix[bestIndex] || [];
             const headers = [];
             const used = new Set();
-
             rawHeaders.forEach((value, colIndex) => {
                 let header = this.normalizeHeaderExact(value);
                 if (!header) header = `Column ${colIndex + 1}`;
-
-                // Header duplikat tidak boleh membuat nilai tertimpa.
                 let unique = header;
                 let n = 2;
-                while (used.has(unique.toLowerCase())) {
-                    unique = `${header} (${n++})`;
-                }
+                while (used.has(unique.toLowerCase())) unique = `${header} (${n++})`;
                 used.add(unique.toLowerCase());
                 headers.push(unique);
             });
 
             const rows = [];
-
-            for (let r = headerIndex + 1; r < matrix.length; r++) {
+            for (let r = bestIndex + 1; r < matrix.length; r++) {
                 const sourceRow = Array.isArray(matrix[r]) ? matrix[r] : [];
-                const hasData = headers.some((_, c) => {
-                    const value = sourceRow[c];
-                    return value !== null && value !== undefined && String(value).trim() !== '';
-                });
+                const hasData = headers.some((_, c) => String(sourceRow[c] ?? '').trim() !== '');
                 if (!hasData) continue;
-
                 const row = {};
-                headers.forEach((header, c) => {
-                    row[header] = sourceRow[c] ?? '';
-                });
+                headers.forEach((header, c) => { row[header] = sourceRow[c] ?? ''; });
                 rows.push(row);
             }
+            return { headers, rows, headerIndex: bestIndex, dataStart: bestIndex + 1, dataType: 'Generic' };
+        },
 
-            return { headers, rows, headerIndex };
+        canonicalImportValue(value) {
+            if (value === null || value === undefined) return '';
+            if (value instanceof Date) return value.toISOString();
+            return String(value).replace(/\s+/g, ' ').trim().toLowerCase();
+        },
+
+        canonicalImportRow(row) {
+            return Object.keys(row || {})
+                .sort((a,b) => a.localeCompare(b))
+                .map(key => `${this.canonicalImportValue(key)}=${this.canonicalImportValue(row[key])}`)
+                .join('\u001F');
         },
 
         normalizeAllProjectsData() {
@@ -1009,8 +1113,8 @@ function appData() {
                 name: '',
                 description: '',
                 initialization: 'empty',
-                file: null,
-                fileName: ''
+                files: [],
+                fileNames: []
             };
             this.createProjectMessage = '';
             this.createProjectMessageType = 'error';
@@ -1030,26 +1134,22 @@ function appData() {
         },
 
         handleCreateProjectFile(event) {
-            const file = event.target.files?.[0];
-            if (!file) {
-                this.createProjectForm.file = null;
-                this.createProjectForm.fileName = '';
-                return;
-            }
+            const files = Array.from(event?.target?.files || []);
+            const valid = files.filter(file => /\.(xlsx|xls)$/i.test(file.name));
 
-            const lowerName = file.name.toLowerCase();
-            if (!lowerName.endsWith('.xlsx') && !lowerName.endsWith('.xls')) {
-                this.createProjectForm.file = null;
-                this.createProjectForm.fileName = '';
+            if (files.length && valid.length !== files.length) {
                 this.createProjectMessageType = 'error';
-                this.createProjectMessage = 'File harus berformat .xlsx atau .xls.';
+                this.createProjectMessage = 'Semua file harus berformat .xlsx atau .xls.';
                 event.target.value = '';
-                return;
             }
 
-            this.createProjectForm.file = file;
-            this.createProjectForm.fileName = file.name;
-            this.createProjectMessage = '';
+            this.createProjectForm.files = valid;
+            this.createProjectForm.fileNames = valid.map(file => file.name);
+            if (!valid.length) {
+                this.createProjectForm.files = [];
+                this.createProjectForm.fileNames = [];
+            }
+            this.createProjectMessage = valid.length ? '' : this.createProjectMessage;
         },
 
         createBlankProject(projectCode, projectName, description = '') {
@@ -1106,7 +1206,7 @@ function appData() {
                 return;
             }
 
-            if (this.createProjectForm.initialization === 'import' && !this.createProjectForm.file) {
+            if (this.createProjectForm.initialization === 'import' && !(this.createProjectForm.files || []).length) {
                 this.createProjectMessageType = 'error';
                 this.createProjectMessage = 'Pilih file Excel terlebih dahulu untuk opsi Import Excel.';
                 return;
@@ -1122,35 +1222,44 @@ function appData() {
                     this.allProjectsData[code] = newProject;
                     this.activeSheet = 'Valve';
                 } else {
-                    const workbook = await this.readExcelWorkbook(this.createProjectForm.file);
-
-                    if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
-                        throw new Error('Workbook tidak memiliki sheet.');
-                    }
-
+                    const files = this.createProjectForm.files || [];
+                    const pendingKeysBySheet = new Map();
                     let firstImportedSheet = '';
 
-                    workbook.SheetNames.forEach((sheetName, sheetIndex) => {
-                        const worksheet = workbook.Sheets[sheetName];
-                        if (!worksheet || !worksheet['!ref']) return;
-
-                        let rows = XLSX.utils.sheet_to_json(worksheet, {
-                            defval: '',
-                            raw: false,
-                            blankrows: false
-                        });
-
-                        rows = rows
-                            .filter(row => Object.values(row || {}).some(value => String(value).trim() !== ''))
-                            .map((row, idx) => this.normalizeRow(row, idx));
-
-                        const cleanSheetName = String(sheetName).trim() || `Sheet ${sheetIndex + 1}`;
-                        newProject[cleanSheetName] = rows;
-
-                        if (!firstImportedSheet && rows.length > 0) {
-                            firstImportedSheet = cleanSheetName;
+                    for (const file of files) {
+                        const workbook = await this.readExcelWorkbook(file);
+                        if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+                            throw new Error(`Workbook ${file.name} tidak memiliki sheet.`);
                         }
-                    });
+
+                        workbook.SheetNames.forEach((sheetName, sheetIndex) => {
+                            const worksheet = workbook.Sheets[sheetName];
+                            if (!worksheet || !worksheet['!ref']) return;
+
+                            const parsed = this.worksheetToExactRows(worksheet);
+                            if (!parsed.rows.length) return;
+
+                            const cleanSheetName = String(sheetName).trim() || `Sheet ${sheetIndex + 1}`;
+                            if (!Array.isArray(newProject[cleanSheetName])) newProject[cleanSheetName] = [];
+                            if (!pendingKeysBySheet.has(cleanSheetName)) {
+                                pendingKeysBySheet.set(
+                                    cleanSheetName,
+                                    new Set(newProject[cleanSheetName].map(row => this.canonicalImportRow(row)))
+                                );
+                            }
+
+                            const keys = pendingKeysBySheet.get(cleanSheetName);
+                            parsed.rows.forEach(row => {
+                                const copy = { ...row };
+                                const key = this.canonicalImportRow(copy);
+                                if (keys.has(key)) return;
+                                keys.add(key);
+                                newProject[cleanSheetName].push(copy);
+                            });
+
+                            if (!firstImportedSheet) firstImportedSheet = cleanSheetName;
+                        });
+                    }
 
                     this.allProjectsData[code] = newProject;
                     this.refreshSheetList();
@@ -1165,7 +1274,7 @@ function appData() {
 
                 this.createProjectMessageType = 'success';
                 this.createProjectMessage = this.createProjectForm.initialization === 'import'
-                    ? `Project ${code} berhasil dibuat dan data Excel berhasil diimport.`
+                    ? `Project ${code} berhasil dibuat dan ${this.createProjectForm.fileNames.length} file Excel berhasil diimport.`
                     : `Project ${code} berhasil dibuat sebagai project kosong.`;
 
                 setTimeout(() => {
@@ -2105,422 +2214,221 @@ function appData() {
         },
 
 
-        importExcelFile(event) {
+        makeImportedSheetName(fileName, sourceSheetName, dataType = 'Generic', reservedNames = new Set()) {
+            const clean = value => String(value || '')
+                .replace(/\u00A0/g, ' ')
+                .replace(/[\\/:*?\"<>|]/g, '-')
+                .replace(/\s+/g, ' ')
+                .trim();
+
+            const baseFile = clean(String(fileName || '').replace(/\.(xlsx|xls)$/i, ''));
+            const baseSheet = clean(sourceSheetName) || 'Sheet';
+            const prefix = dataType === 'LineList' ? 'IMPORT - Line List' : 'IMPORT';
+            let candidate = `${prefix} - ${baseFile} - ${baseSheet}`;
+            // Sheet navigation is visual; keep names readable while ensuring uniqueness.
+            if (candidate.length > 80) candidate = candidate.slice(0, 80).trim();
+
+            let name = candidate;
+            let counter = 2;
+            while (this.sheets.some(s => String(s).toLowerCase() === name.toLowerCase()) || [...reservedNames].some(s => String(s).toLowerCase() === name.toLowerCase())) {
+                const suffix = ` (${counter++})`;
+                name = candidate.slice(0, Math.max(1, 80 - suffix.length)).trim() + suffix;
+            }
+            return name;
+        },
+
+        async importExcelFile(event) {
             const input = event?.target;
-            const file = input?.files?.[0];
-            if (!file) return;
-
-            const resetInput = () => {
-                if (input) input.value = '';
-            };
-
-            const reader = new FileReader();
-
-            reader.onload = (e) => {
-                try {
-                    const buffer = e.target.result;
-                    if (!buffer) {
-                        throw new Error('File Excel kosong atau tidak dapat dibaca.');
-                    }
-
-                    const workbook = XLSX.read(new Uint8Array(buffer), {
-                        type: 'array',
-                        cellDates: false,
-                        cellNF: false,
-                        cellText: false,
-                        raw: true
-                    });
-
-                    if (!workbook.SheetNames?.length) {
-                        throw new Error('Workbook tidak memiliki worksheet.');
-                    }
-
-                    const projectKey = this.activeProject;
-                    if (!projectKey) {
-                        throw new Error('Project aktif belum dipilih.');
-                    }
-
-                    if (!this.allProjectsData[projectKey]) {
-                        this.allProjectsData[projectKey] =
-                            this.createBlankProject(projectKey, 'Piping & Equipment', '');
-                    }
-
-                    const targetSheet = this.getImportTargetSheet();
-
-                    /*
-                     * ======================================================
-                     * ATURAN IMPORT FINAL
-                     * ======================================================
-                     *
-                     * 1. SP Items       -> hanya sheet SP Items
-                     * 2. Pipe Support   -> hanya sheet Pipe Support/Support
-                     * 3. Line List      -> hanya sheet Line List/LineList
-                     * 4. MTO workbook   -> IMPORT SEMUA SHEET MTO
-                     *
-                     * Ini yang sebelumnya menyebabkan Tee, Pipe, Elbow,
-                     * Flange, dll tetap kosong: import hanya mengambil
-                     * worksheet yang sedang aktif (Valve).
-                     *
-                     * Project 3000-Piping and Equipment.xlsx memang merupakan
-                     * workbook master yang berisi seluruh kategori MTO.
-                     * Saat workbook itu diimport dari area MTO, semua sheet
-                     * MTO dimasukkan ke tabelnya masing-masing.
-                     *
-                     * Sheet Support sengaja tidak ditimpa oleh workbook MTO
-                     * karena tabel Pipe Support mempunyai sumber exact
-                     * tersendiri: Pipe_Support_Project_3000_EXACT.xlsx.
-                     * ======================================================
-                     */
-
-                    const dedicatedTargets = new Set([
-                        'SP Items',
-                        'Support',
-                        'LineList'
-                    ]);
-
-                    const mtoSheets = new Set([
-                        'Valve',
-                        'Tee',
-                        'Single Branch Fitting',
-                        'Pipe',
-                        'Nozzle',
-                        'Instrument',
-                        'Flange',
-                        'Elbow',
-                        'Coupling',
-                        'Pipe Run Component',
-                        'Tap Weld',
-                        'Socketweld',
-                        'Gasket',
-                        'Buttweld',
-                        'Bolt Set',
-                        'Fasteners',
-                        'Vessel',
-                        'Tank',
-                        'Pump',
-                        'Misc Equipment',
-                        'Equipment',
-                        'Piping and Equipment'
-                    ]);
-
-                    const normalizeSheetName = (name) =>
-                        String(name || '')
-                            .replace(/\u00A0/g, ' ')
-                            .trim();
-
-                    const lower = (name) =>
-                        normalizeSheetName(name).toLowerCase();
-
-                    const findExactWorkbookSheet = (aliases) => {
-                        const wanted = aliases.map(lower);
-                        return workbook.SheetNames.find(name =>
-                            wanted.includes(lower(name))
-                        ) || null;
-                    };
-
-                    // ------------------------------------------------------
-                    // MODE A: dedicated table (SP Items / Pipe Support /
-                    // Line List). Hanya satu sheet yang diproses.
-                    // ------------------------------------------------------
-                    if (dedicatedTargets.has(targetSheet)) {
-                        let aliases;
-
-                        if (targetSheet === 'SP Items') {
-                            aliases = ['SP Items', 'SP_Items', 'SPItems'];
-                        } else if (targetSheet === 'Support') {
-                            aliases = ['Pipe Support', 'Support'];
-                        } else {
-                            aliases = ['Line List', 'LineList'];
-                        }
-
-                        let actualSheetName = findExactWorkbookSheet(aliases);
-
-                        if (!actualSheetName && workbook.SheetNames.length === 1) {
-                            actualSheetName = workbook.SheetNames[0];
-                        }
-
-                        if (!actualSheetName) {
-                            throw new Error(
-                                `Worksheet untuk "${targetSheet}" tidak ditemukan.\n\n` +
-                                `Worksheet tersedia:\n${workbook.SheetNames.join(', ')}`
-                            );
-                        }
-
-                        const parsed = this.worksheetToExactRows(
-                            workbook.Sheets[actualSheetName]
-                        );
-
-                        if (!parsed.rows.length) {
-                            throw new Error(
-                                `Worksheet "${actualSheetName}" tidak mempunyai data.`
-                            );
-                        }
-
-                        const expected = this.getExactSchema(targetSheet);
-
-                        if (expected) {
-                            const normalizedHeaders = parsed.headers.map(h =>
-                                String(h)
-                                    .replace(/\r\n/g, '\n')
-                                    .trim()
-                                    .toLowerCase()
-                            );
-
-                            const matched = expected.filter(h =>
-                                normalizedHeaders.includes(
-                                    String(h)
-                                        .replace(/\r\n/g, '\n')
-                                        .trim()
-                                        .toLowerCase()
-                                )
-                            ).length;
-
-                            const ratio = expected.length
-                                ? matched / expected.length
-                                : 1;
-
-                            if (ratio < 0.5) {
-                                throw new Error(
-                                    `Struktur Excel tidak cocok dengan tabel ${targetSheet}.\n\n` +
-                                    `Header terbaca:\n${parsed.headers.join(' | ')}`
-                                );
-                            }
-                        }
-
-                        this.allProjectsData[projectKey][targetSheet] =
-                            parsed.rows.map(row => ({ ...row }));
-
-                        this.activeSheet = targetSheet;
-
-                        this.currentDashboardTab = 'workspace';
-                        this.currentPage = 1;
-                        this.globalSearch = '';
-                        this.columnFilters = {};
-                        this.closeColumnFilter();
-                        this.tableRenderKey++;
-
-                        this.saveStorage();
-
-                        this.$nextTick(() => {
-                            requestAnimationFrame(() => {
-                                this.updateTableScrollbar();
-                            });
-                        });
-
-                        console.log(
-                            `[IMPORT EXACT] ${targetSheet}:`,
-                            actualSheetName,
-                            parsed.rows.length,
-                            'rows',
-                            parsed.headers.length,
-                            'columns'
-                        );
-
-                        alert(
-                            `Import berhasil!\n\n` +
-                            `Project: ${projectKey}\n` +
-                            `Tabel: ${targetSheet}\n` +
-                            `Worksheet: ${actualSheetName}\n` +
-                            `Kolom: ${parsed.headers.length}\n` +
-                            `Data: ${parsed.rows.length} baris`
-                        );
-
-                        return;
-                    }
-
-                    // ------------------------------------------------------
-                    // MODE B: MTO
-                    // ------------------------------------------------------
-                    //
-                    // Jika workbook berisi beberapa sheet MTO, import SEMUA
-                    // sheet yang dikenali. Ini membuat navigasi Tee, Pipe,
-                    // Elbow, Flange, dst. tidak lagi kosong.
-                    //
-                    // Jika workbook hanya berisi satu sheet, hanya sheet itu
-                    // yang dimasukkan.
-                    // ------------------------------------------------------
-                    // UNIVERSAL MODE:
-                    // Semua worksheet yang mempunyai data diproses. Sheet yang
-                    // namanya dikenal tetap memakai nama kategori yang sama;
-                    // sheet baru/asing otomatis dibuat sebagai tab baru.
-                    const availableMtoSheets = workbook.SheetNames
-                        .map(normalizeSheetName);
-
-                    if (availableMtoSheets.length > 0) {
-                        const imported = [];
-                        const skipped = [];
-
-                        availableMtoSheets.forEach(actualSheetName => {
-                            try {
-                                const parsed = this.worksheetToExactRows(
-                                    workbook.Sheets[actualSheetName]
-                                );
-
-                                if (!parsed.rows.length) {
-                                    skipped.push(`${actualSheetName} (kosong)`);
-                                    return;
-                                }
-
-                                // Gunakan nama kategori lama jika cocok.
-                                // Jika tidak cocok, otomatis buat sheet baru
-                                // berdasarkan nama worksheet Excel.
-                                const knownTarget = this.sheets.find(s =>
-                                    lower(s) === lower(actualSheetName)
-                                );
-                                const targetName = knownTarget || actualSheetName;
-
-                                if (!this.sheets.includes(targetName)) {
-                                    this.sheets = [...this.sheets, targetName];
-                                }
-
-                                // Data disimpan apa adanya: urutan header, nama
-                                // header, dan isi cell berasal langsung dari Excel.
-                                this.allProjectsData[projectKey][targetName] =
-                                    parsed.rows.map(row => ({ ...row }));
-
-                                imported.push({
-                                    sheet: targetName,
-                                    sourceSheet: actualSheetName,
-                                    rows: parsed.rows.length,
-                                    columns: parsed.headers.length
-                                });
-                            } catch (sheetError) {
-                                skipped.push(
-                                    `${actualSheetName} (${sheetError.message})`
-                                );
-                            }
-                        });
-
-                        if (!imported.length) {
-                            throw new Error(
-                                'Tidak ada sheet MTO yang berhasil diimport.'
-                            );
-                        }
-
-                        // Jangan sentuh Support/Pipe Support di sini.
-                        // Sumbernya adalah file Pipe Support exact terpisah.
-
-                        // Tampilkan Valve jika ada; kalau tidak, tampilkan
-                        // sheet MTO pertama yang berhasil diimport.
-                        const valveImported = imported.some(
-                            item => item.sheet === 'Valve'
-                        );
-
-                        this.activeSheet = valveImported
-                            ? 'Valve'
-                            : imported[0].sheet;
-
-                        this.currentDashboardTab = 'workspace';
-                        this.currentPage = 1;
-                        this.globalSearch = '';
-                        this.columnFilters = {};
-                        this.closeColumnFilter();
-                        this.tableRenderKey++;
-
-                        this.saveStorage();
-
-                        this.$nextTick(() => {
-                            requestAnimationFrame(() => {
-                                this.updateTableScrollbar();
-                                setTimeout(() => {
-                                    this.updateTableScrollbar();
-                                }, 150);
-                            });
-                        });
-
-                        console.table(imported);
-
-                        const summary = imported
-                            .map(item =>
-                                `• ${item.sheet}: ${item.rows} baris × ${item.columns} kolom`
-                            )
-                            .join('\n');
-
-                        alert(
-                            `Import Excel berhasil!\n\n` +
-                            `Project: ${projectKey}\n\n` +
-                            `Sheet yang berhasil dimuat:\n${summary}` +
-                            (skipped.length
-                                ? `\n\nSheet yang dilewati:\n• ${skipped.join('\n• ')}`
-                                : '') +
-                            `\n\nSetiap worksheet dibuat menjadi tabel/tab masing-masing secara otomatis.`
-                        );
-
-                        return;
-                    }
-
-                    // ------------------------------------------------------
-                    // MODE C: workbook satu sheet MTO non-standar.
-                    // ------------------------------------------------------
-                    if (workbook.SheetNames.length === 1) {
-                        const actualSheetName = workbook.SheetNames[0];
-                        const parsed = this.worksheetToExactRows(
-                            workbook.Sheets[actualSheetName]
-                        );
-
-                        if (!parsed.rows.length) {
-                            throw new Error(
-                                `Worksheet "${actualSheetName}" tidak mempunyai data.`
-                            );
-                        }
-
-                        const target = actualSheetName || targetSheet || 'Imported Data';
-
-                        this.allProjectsData[projectKey][target] =
-                            parsed.rows.map(row => ({ ...row }));
-
-                        if (!this.sheets.includes(target)) {
-                            this.sheets = [...this.sheets, target];
-                        }
-
-                        this.activeSheet = target;
-                        this.currentDashboardTab = 'workspace';
-                        this.currentPage = 1;
-                        this.globalSearch = '';
-                        this.columnFilters = {};
-                        this.closeColumnFilter();
-                        this.tableRenderKey++;
-
-                        this.saveStorage();
-
-                        this.$nextTick(() => {
-                            requestAnimationFrame(() => {
-                                this.updateTableScrollbar();
-                            });
-                        });
-
-                        alert(
-                            `Import berhasil!\n\n` +
-                            `Tabel: ${target}\n` +
-                            `Worksheet: ${actualSheetName}\n` +
-                            `Data: ${parsed.rows.length} baris`
-                        );
-
-                        return;
-                    }
-
-                    throw new Error(
-                        `Workbook tidak dapat dibaca sebagai tabel.\n\n` +
-                        `Worksheet tersedia: ${workbook.SheetNames.join(', ')}`
-                    );
-
-                } catch (error) {
-                    console.error('[IMPORT FIX] Gagal:', error);
-                    alert(
-                        'Import Excel gagal.\n\n' +
-                        (error?.message || 'Format Excel tidak sesuai.')
-                    );
-                } finally {
-                    resetInput();
-                }
-            };
-
-            reader.onerror = () => {
+            const files = Array.from(input?.files || []);
+            if (!files.length) return;
+
+            const resetInput = () => { if (input) input.value = ''; };
+            const invalid = files.filter(file => !/\.(xlsx|xls)$/i.test(file.name));
+            if (invalid.length) {
+                alert('Import dibatalkan. Semua file harus berformat .xlsx atau .xls.');
                 resetInput();
-                alert('File Excel tidak dapat dibaca oleh browser.');
-            };
+                return;
+            }
 
-            reader.readAsArrayBuffer(file);
+            const projectKey = this.activeProject;
+            if (!projectKey) {
+                alert('Project aktif belum dipilih.');
+                resetInput();
+                return;
+            }
+            if (!this.allProjectsData[projectKey]) {
+                this.allProjectsData[projectKey] = this.createBlankProject(projectKey, 'Piping & Equipment', '');
+            }
+
+            this.isImportingExcel = true;
+            const payload = [];
+            const errors = [];
+            const fileSummary = [];
+            const reservedImportSheets = new Set();
+            let totalRows = 0;
+            let duplicateRows = 0;
+            let skippedRows = 0;
+
+            try {
+                for (const file of files) {
+                    try {
+                        const workbook = await this.readExcelWorkbook(file);
+                        let fileRows = 0;
+                        let fileSheets = 0;
+
+                        for (const sourceSheetName of workbook.SheetNames || []) {
+                            const worksheet = workbook.Sheets[sourceSheetName];
+                            if (!worksheet || !worksheet['!ref']) { skippedRows++; continue; }
+                            try {
+                                const parsed = this.worksheetToExactRows(worksheet);
+                                if (!parsed.rows.length) { skippedRows++; continue; }
+
+                                const normalizedSource = String(sourceSheetName).replace(/\u00A0/g, ' ').trim();
+
+                                // PENTING: hasil import SELALU menjadi dataset/sheet baru.
+                                // Walaupun struktur Excel sama persis dengan LineList, data
+                                // tidak boleh digabung dengan LineList existing. Dengan cara
+                                // ini data lama tetap utuh dan setiap file/worksheet punya
+                                // ruang data sendiri yang mudah dilacak.
+                                const targetSheet = this.makeImportedSheetName(
+                                    file.name,
+                                    normalizedSource,
+                                    parsed.dataType,
+                                    reservedImportSheets
+                                );
+                                reservedImportSheets.add(targetSheet);
+
+                                // Jangan menyentuh dataset/sheet existing saat PREVIEW.
+                                // Sheet baru dibuat resmi hanya setelah user menekan Import Data Baru. 
+
+                                // Duplikat hanya dicek DI DALAM dataset import ini, bukan
+                                // terhadap data existing pada LineList/Valve/master lain.
+                                const seenInThisDataset = new Set();
+                                const uniqueNewRows = [];
+                                for (const row of parsed.rows) {
+                                    const key = this.canonicalImportRow(row);
+                                    if (seenInThisDataset.has(key)) {
+                                        duplicateRows++;
+                                        continue;
+                                    }
+                                    seenInThisDataset.add(key);
+                                    uniqueNewRows.push({ ...row });
+                                }
+
+                                payload.push({
+                                    fileName: file.name,
+                                    sourceSheet: normalizedSource,
+                                    targetSheet,
+                                    headers: parsed.headers,
+                                    dataType: parsed.dataType,
+                                    rows: uniqueNewRows
+                                });
+                                totalRows += parsed.rows.length;
+                                fileRows += uniqueNewRows.length;
+                                fileSheets++;
+                            } catch (err) {
+                                errors.push(`${file.name} / ${sourceSheetName}: ${err.message}`);
+                            }
+                        }
+                        fileSummary.push({ name: file.name, sheets: fileSheets, newRows: fileRows });
+                    } catch (err) {
+                        errors.push(`${file.name}: ${err.message}`);
+                    }
+                }
+
+                const newRows = payload.reduce((sum, item) => sum + item.rows.length, 0);
+                if (!payload.length) throw new Error('Tidak ada data tabel yang dapat dipreview dari file yang dipilih.');
+
+                this.importPreview = {
+                    files: fileSummary,
+                    sheets: payload.map(p => ({
+                        fileName: p.fileName,
+                        sourceSheet: p.sourceSheet,
+                        targetSheet: p.targetSheet,
+                        rows: p.rows.length,
+                        columns: p.headers.length,
+                        dataType: p.dataType
+                    })),
+                    totalRows, newRows, duplicateRows, skippedRows, errors, payload
+                };
+                this.showImportPreview = true;
+            } catch (error) {
+                alert('Import Excel gagal.\n\n' + (error?.message || 'Format Excel tidak sesuai.'));
+            } finally {
+                this.isImportingExcel = false;
+                resetInput();
+            }
+        },
+
+        cancelImportPreview() {
+            this.showImportPreview = false;
+            this.importPreview = { files: [], sheets: [], totalRows: 0, newRows: 0, duplicateRows: 0, skippedRows: 0, errors: [], payload: [] };
+        },
+
+        commitImportPreview() {
+            if (this.isImportingExcel || !this.importPreview.payload.length) return;
+            try {
+                const project = this.allProjectsData[this.activeProject];
+                if (!project) throw new Error('Project aktif tidak ditemukan.');
+
+                let importedRows = 0;
+                for (const item of this.importPreview.payload) {
+                    const targetSheet = item.targetSheet;
+                    if (!this.sheets.includes(targetSheet)) this.sheets.push(targetSheet);
+                    const target = Array.isArray(project[targetSheet]) ? project[targetSheet] : [];
+                    const rowsToAdd = item.rows.map(row => ({ ...row }));
+                    // Dataset import baru selalu dimulai dari kosong. Tidak pernah concat
+                    // dengan master LineList/Valve atau dataset import lain.
+                    project[targetSheet] = target.concat(rowsToAdd);
+                    importedRows += rowsToAdd.length;
+                }
+
+                this.refreshSheetList();
+
+                const targetWithMostRows = [...this.importPreview.payload]
+                    .filter(item => item.rows.length > 0)
+                    .sort((a, b) => b.rows.length - a.rows.length)[0];
+                if (targetWithMostRows) this.activeSheet = targetWithMostRows.targetSheet;
+
+                this.currentPage = 1;
+                this.globalSearch = '';
+                this.columnFilters = {};
+                this.closeColumnFilter();
+                this.tableRenderKey++;
+
+                const duplicateRows = this.importPreview.duplicateRows;
+                const sheetCount = this.importPreview.sheets.length;
+
+                // Tutup preview sebelum browser melakukan repaint.
+                // Tidak memakai alert setelah commit karena alert memblokir repaint
+                // sehingga preview lama terlihat seolah-olah belum tertutup.
+                this.cancelImportPreview();
+                this.saveStorage();
+
+                this.$nextTick(() => {
+                    requestAnimationFrame(() => {
+                        this.updateTableScrollbar();
+                        this.showImportSuccess(
+                            `${importedRows} data baru berhasil ditambahkan dari ${sheetCount} worksheet. ` +
+                            `${duplicateRows} duplikat dilewati. Data lama tetap aman.`
+                        );
+                    });
+                });
+            } catch (error) {
+                console.error('[IMPORT COMMIT] Gagal:', error);
+                alert('Data belum disimpan karena terjadi kesalahan saat commit import.\n\n' +
+                    (error?.message || 'Kesalahan tidak diketahui.'));
+            }
+        },
+
+        showImportSuccess(message) {
+            this.importSuccessMessage = String(message || '');
+            this.importSuccessVisible = true;
+            clearTimeout(this._importSuccessTimer);
+            this._importSuccessTimer = setTimeout(() => {
+                this.importSuccessVisible = false;
+                this.importSuccessMessage = '';
+            }, 4500);
         },
 
         exportExcel() {
@@ -2535,11 +2443,27 @@ function appData() {
         // ==========================================================
         formatCurrency(value) {
             const n = Number(value) || 0;
-            const currency = this.boqCurrency === 'IDR' ? 'IDR' : 'USD';
-            return new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 2 }).format(n);
+            // BOQ/MTO menggunakan Rupiah sebagai mata uang default.
+            // Tetap menghormati pilihan USD jika user memang memilihnya.
+            if (this.boqCurrency === 'IDR') {
+                return new Intl.NumberFormat('id-ID', {
+                    style: 'currency',
+                    currency: 'IDR',
+                    minimumFractionDigits: 0,
+                    maximumFractionDigits: 0
+                }).format(n);
+            }
+            return new Intl.NumberFormat('en-US', {
+                style: 'currency',
+                currency: 'USD',
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            }).format(n);
         },
 
-        // WORKFLOW ENGINEER -> ESTIMATOR -> LEAD -> ENGINEER
+        // WORKFLOW ENGINEER -> ESTIMATOR -> LEAD -> ESTIMATOR
+        // Jika revisi menyangkut BOM/teknis, ESTIMATOR dapat mengirim kembali
+        // ke ENGINEER -> ESTIMATOR -> LEAD.
         // ==========================================================
         get workflowStatus() {
             return this.allProjectsData?.[this.activeProject]?.meta?.workflowStatus || 'DRAFT';
@@ -2553,6 +2477,8 @@ function appData() {
                 BOQ_CALCULATED: 'BOQ Sudah Dihitung',
                 SUBMITTED_TO_LEAD: 'Menunggu Lead Review',
                 REVISION_REQUIRED: 'Revisi Diperlukan - Kembali ke Engineer',
+                ESTIMATOR_REVISION_REQUIRED: 'Revisi Diperlukan - Kembali ke Estimator',
+                ENGINEER_REVISION_REQUIRED: 'Revisi BOM Diperlukan - Kembali ke Engineer',
                 APPROVED: 'Approved - Laporan Final'
             };
             return map[this.workflowStatus] || this.workflowStatus;
@@ -2561,7 +2487,7 @@ function appData() {
         get workflowStatusClass() {
             const s = this.workflowStatus;
             if (s === 'APPROVED') return 'bg-emerald-100 text-emerald-700 border-emerald-200';
-            if (s === 'REVISION_REQUIRED') return 'bg-amber-100 text-amber-700 border-amber-200';
+            if (s === 'REVISION_REQUIRED' || s === 'ESTIMATOR_REVISION_REQUIRED' || s === 'ENGINEER_REVISION_REQUIRED') return 'bg-amber-100 text-amber-700 border-amber-200';
             if (s === 'SUBMITTED_TO_LEAD' || s === 'SUBMITTED_TO_ESTIMATOR') return 'bg-sky-100 text-sky-700 border-sky-200';
             return 'bg-slate-100 text-slate-700 border-slate-200';
         },
@@ -2818,13 +2744,19 @@ function appData() {
         },
 
         recalculateBOM() {
-            // Tombol Hitung Ulang harus benar-benar menghitung ulang data sheet aktif.
-            // Jangan menutup modal dan jangan menulis ulang seluruh data Excel.
+            // Tombol Hitung Ulang selalu memproses ulang sumber MTO terbaru.
+            // Jangan bergantung pada selection/filtered rows dan jangan menutup modal.
             try {
+                const before = Array.isArray(this.bomDetailsAll) ? this.bomDetailsAll.length : 0;
                 this.calculateBOM(true);
+                const project = this.allProjectsData?.[this.activeProject];
+                const after = Array.isArray(project?.meta?.bom?.details) ? project.meta.bom.details.length : 0;
+                // Pastikan modal tetap terbuka setelah perhitungan selesai.
+                this.showBomModal = true;
+                console.info('[BOM] Hitung Ulang selesai:', { before, after });
             } catch (error) {
-                console.error('Calculate BOM error:', error);
-                alert('Perhitungan BOM gagal dijalankan. Periksa Console untuk detail error.');
+                console.error('[BOM] Calculate BOM error:', error);
+                alert('Perhitungan BOM gagal dijalankan. Silakan coba lagi.');
             }
         },
 
@@ -2906,6 +2838,28 @@ function appData() {
                 if (field === 'size2') return this.getNumeric(row, ['Size 2', 'SIZE 2']);
                 if (field === 'length') return this.getNumeric(row, ['Length', 'LENGTH', 'Engagement Length']);
                 if (field === 'unit') return this.getText(row, ['Unit', 'UNIT', 'UOM'], 'EA');
+            }
+
+            // Komponen yang berasal dari sheet MTO tertentu sering tidak memiliki
+            // kolom Qty/Size 1 dengan nama yang seragam. Ambil dari Size atau
+            // Nominal Diameter agar Inch-Dia tetap terhitung.
+            const dedicatedMtoSheets = new Set(['gasket', 'buttweld', 'butt weld', 'bolt set']);
+            if (dedicatedMtoSheets.has(canonicalSheet)) {
+                if (field === 'qty') {
+                    return this.getNumeric(row, ['Qty', 'Quantity', 'QTY', 'Item Count', 'ITEM COUNT']) || 1;
+                }
+                if (field === 'size1') {
+                    return this.getNumeric(row, [
+                        'Size 1', 'SIZE 1', 'Size', 'SIZE',
+                        'Nominal Diameter', 'Nominal Size', 'Line Size (Inch)', 'LINE SIZE (INCH)'
+                    ]);
+                }
+                if (field === 'size2') {
+                    return this.getNumeric(row, ['Size 2', 'SIZE 2']);
+                }
+                if (field === 'unit') {
+                    return this.getText(row, ['Unit', 'UNIT', 'UOM', 'Satuan'], 'EA');
+                }
             }
 
             if (field === 'component' && canonicalComponent) return canonicalComponent;
@@ -3091,7 +3045,7 @@ function appData() {
                 // data MTO. Karena satu marker mewakili satu sambungan pada
                 // diameter nominalnya, nilai dasarnya = Qty x Size.
                 // ----------------------------------------------------------
-                else if (/\bbuttweld\b/.test(t)) {
+                else if (componentText === 'buttweld' || /\bbuttweld\b/.test(t)) {
                     value = BF * R;
                     formula = 'BF2 × R2 (Buttweld joint)';
                 }
@@ -3102,6 +3056,14 @@ function appData() {
                 else if (/\bsocket\s*weld\b|\bsocketweld\b/.test(t)) {
                     value = BF * R;
                     formula = 'BF2 × R2 (Socketweld joint)';
+                }
+                else if (componentText === 'gasket' || /\bgasket\b/.test(t)) {
+                    value = BF * R;
+                    formula = 'BF2 × R2 (Gasket)';
+                }
+                else if (componentText === 'bolt set' || /\bbolt\s*set\b/.test(t)) {
+                    value = BF * R;
+                    formula = 'BF2 × R2 (Bolt Set)';
                 }
                 // ----------------------------------------------------------
                 // SUPPORT
@@ -3160,9 +3122,11 @@ function appData() {
                 const lineKey = normalizeLine(lineNo);
 
                 // Aturan mentor: item MTO hanya dihitung jika Line Number MTO
-                // benar-benar ditemukan di Line List. Jika Line List kosong,
-                // tidak ada satu pun item MTO yang boleh masuk BOM.
-                if (sheetName !== 'LineList' && (!lineKey || lineKey === '-' || !lineSet.has(lineKey))) {
+                // Jika Master Line List tersedia, item MTO hanya dihitung
+                // apabila Line Number MTO ditemukan di Line List. Jika Line List
+                // belum diisi/kosong, jangan menghapus seluruh BOM saat Hitung Ulang.
+                const hasMasterLineList = lineRows.length > 0;
+                if (sheetName !== 'LineList' && hasMasterLineList && (!lineKey || lineKey === '-' || !lineSet.has(lineKey))) {
                     excludedNoLine++;
                     return;
                 }
@@ -3289,8 +3253,14 @@ function appData() {
             project.meta.bom.selectedKeys = [...this.bomSelectedKeys];
             project.meta.workflowStatus = 'BOM_CALCULATED';
             project.meta.revisionNotes = '';
-            this.saveProjectMetaOnly();
+            // Jangan menunggu proses storage untuk menyelesaikan perhitungan UI.
+            // Snapshot penyimpanan dijalankan setelah hasil BOM sudah tampil.
             this.showBomModal = true;
+            try {
+                this.saveProjectMetaOnly();
+            } catch (storageError) {
+                console.warn('[BOM] Penyimpanan snapshot dilewati:', storageError);
+            }
         },
 
         async submitBOMToEstimator() {
@@ -3317,6 +3287,7 @@ function appData() {
 
             // Pastikan snapshot BOM benar-benar tersimpan sebelum berpindah role.
             await this.saveWorkflowSnapshot(this.activeProject, project);
+            project.meta.revisionTarget = 'ESTIMATOR';
             this.setWorkflowStatus('SUBMITTED_TO_ESTIMATOR', `${selected.length} item BOM dipilih dan dikirim oleh Piping Engineer. Menunggu Estimator melakukan kalkulasi BOQ.`);
             this.showBomModal = false;
             alert(`${selected.length} item BOM / BQ berhasil dikirim ke Estimator.`);
@@ -3342,7 +3313,7 @@ function appData() {
                 return;
             }
 
-            if (this.workflowStatus !== 'SUBMITTED_TO_ESTIMATOR' && this.workflowStatus !== 'BOQ_CALCULATED') {
+            if (!['SUBMITTED_TO_ESTIMATOR', 'BOQ_CALCULATED', 'ESTIMATOR_REVISION_REQUIRED'].includes(this.workflowStatus)) {
                 alert(`BOQ belum dapat dihitung. Status saat ini: ${this.workflowStatusText}`);
                 return;
             }
@@ -3361,9 +3332,11 @@ function appData() {
 
                 // calculateBOM membuka modal dan mengubah status menjadi BOM_CALCULATED.
                 // Kembalikan status agar Estimator tetap berada pada tahap yang benar.
-                if (keepStatus === 'SUBMITTED_TO_ESTIMATOR' && currentBom?.details) {
-                    this.setWorkflowStatus('SUBMITTED_TO_ESTIMATOR',
-                        'BOM sudah dikirim oleh Piping Engineer. Menunggu Estimator melakukan kalkulasi BOQ.');
+                if (['SUBMITTED_TO_ESTIMATOR', 'ESTIMATOR_REVISION_REQUIRED'].includes(keepStatus) && currentBom?.details) {
+                    this.setWorkflowStatus(keepStatus,
+                        keepStatus === 'ESTIMATOR_REVISION_REQUIRED'
+                            ? 'Revisi dari Lead diterima. Estimator dapat memperbaiki BOQ lalu mengirim ulang ke Lead.'
+                            : 'BOM sudah dikirim oleh Piping Engineer. Menunggu Estimator melakukan kalkulasi BOQ.');
                     this.showBomModal = false;
                 }
             }
@@ -3795,6 +3768,22 @@ function appData() {
             this.saveStorage();
         },
 
+        async sendBOQBackToEngineer() {
+            if (this.loginForm.role !== 'Estimator Proposal') return alert('Hanya Estimator Proposal yang dapat mengirim kembali ke Engineer.');
+            const meta = this.allProjectsData?.[this.activeProject]?.meta;
+            if (!meta?.bom?.details?.length) return alert('Data BOM tidak tersedia. Engineer perlu menghitung BOM terlebih dahulu.');
+
+            // Dipakai bila catatan Lead membutuhkan perubahan teknis/BOM, bukan sekadar harga BOQ.
+            meta.revisionTarget = 'ENGINEER';
+            await this.saveWorkflowSnapshot(this.activeProject, this.allProjectsData[this.activeProject]);
+            this.setWorkflowStatus(
+                'ENGINEER_REVISION_REQUIRED',
+                meta.revisionNotes || 'Estimator meminta Engineer memperbaiki / menghitung ulang BOM berdasarkan catatan revisi Lead.'
+            );
+            this.showBoqModal = false;
+            alert('Project dikirim kembali ke Piping Engineer untuk revisi dan hitung ulang BOM.');
+        },
+
         async submitBOQToLead() {
             if (this.loginForm.role !== 'Estimator Proposal') return alert('Hanya Estimator Proposal yang dapat mengirim BOQ.');
             const meta = this.allProjectsData?.[this.activeProject]?.meta;
@@ -3817,6 +3806,7 @@ function appData() {
                 this.allProjectsData[this.activeProject]
             );
 
+            meta.revisionTarget = 'LEAD';
             this.setWorkflowStatus(
                 'SUBMITTED_TO_LEAD',
                 'BOQ sudah dikirim oleh Estimator. Menunggu Lead Estimator melakukan review.'
@@ -3943,13 +3933,14 @@ function appData() {
             if (this.loginForm.role !== 'Lead Estimator') return;
             const meta = this.allProjectsData[this.activeProject].meta;
             const notes = this.getReviewNote();
-            if (!notes) return alert('Catatan revisi wajib diisi agar Engineer mengetahui bagian yang harus diperbaiki.');
+            if (!notes) return alert('Catatan revisi wajib diisi agar Estimator mengetahui bagian yang harus diperbaiki.');
             meta.isApproved = false;
             meta.version = Number(meta.version || 0) + 1;
-            this.setWorkflowStatus('REVISION_REQUIRED', notes);
+            this.setWorkflowStatus('ESTIMATOR_REVISION_REQUIRED', notes);
+            meta.revisionTarget = 'ESTIMATOR';
             this.recordApproval('REVISION_REQUIRED', notes);
             this.showApproveModal = false;
-            alert(`Revisi diminta. Project kembali ke Engineer sebagai Rev ${meta.version}.`);
+            alert(`Revisi diminta. Project kembali ke Estimator sebagai Rev ${meta.version}.`);
         },
 
         startNewRevision() {
@@ -3987,14 +3978,15 @@ function appData() {
 
         rejectData() {
             if (this.loginForm.role !== 'Lead Estimator') return;
-            const notes = this.getReviewNote() || 'Laporan ditolak dan perlu diperbaiki oleh Engineer.';
+            const notes = this.getReviewNote() || 'Laporan ditolak dan perlu diperbaiki oleh Estimator.';
             const meta = this.allProjectsData[this.activeProject].meta;
             meta.isApproved = false;
             meta.version = Number(meta.version || 0) + 1;
-            this.setWorkflowStatus('REVISION_REQUIRED', notes);
+            this.setWorkflowStatus('ESTIMATOR_REVISION_REQUIRED', notes);
+            meta.revisionTarget = 'ESTIMATOR';
             this.recordApproval('REJECTED', notes);
             this.showApproveModal = false;
-            alert(`Laporan ditolak. Project dikembalikan ke Engineer sebagai Rev ${meta.version}.`);
+            alert(`Laporan ditolak. Project dikembalikan ke Estimator sebagai Rev ${meta.version}.`);
         },
 
         loadApprovalHistory() {
@@ -4013,8 +4005,8 @@ function appData() {
 
         get activeTaskCount() {
             const s = this.workflowStatus;
-            if (this.loginForm.role === 'Piping Engineer') return ['DRAFT', 'REVISION_REQUIRED'].includes(s) ? 1 : 0;
-            if (this.loginForm.role === 'Estimator Proposal') return s === 'SUBMITTED_TO_ESTIMATOR' ? 1 : 0;
+            if (this.loginForm.role === 'Piping Engineer') return ['DRAFT', 'REVISION_REQUIRED', 'ENGINEER_REVISION_REQUIRED'].includes(s) ? 1 : 0;
+            if (this.loginForm.role === 'Estimator Proposal') return ['SUBMITTED_TO_ESTIMATOR', 'ESTIMATOR_REVISION_REQUIRED'].includes(s) ? 1 : 0;
             if (this.loginForm.role === 'Lead Estimator') return s === 'SUBMITTED_TO_LEAD' ? 1 : 0;
             return 0;
         },
@@ -4041,7 +4033,13 @@ function appData() {
             const boq = meta.boq || { items: [], directCost: 0, indirectCost: 0, totalCost: 0 };
             const esc = (v) => String(v ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
             const num = (v) => Number(v || 0).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
-            const money = (v) => new Intl.NumberFormat('en-US', {style:'currency', currency: boq.currency === 'IDR' ? 'IDR' : 'USD', maximumFractionDigits:2}).format(Number(v)||0);
+            const money = (v) => {
+                const n = Number(v) || 0;
+                if (boq.currency === 'IDR') {
+                    return new Intl.NumberFormat('id-ID', { style:'currency', currency:'IDR', minimumFractionDigits:0, maximumFractionDigits:0 }).format(n);
+                }
+                return new Intl.NumberFormat('en-US', { style:'currency', currency:'USD', minimumFractionDigits:2, maximumFractionDigits:2 }).format(n);
+            };
 
             const rows = Array.isArray(bom.details) ? bom.details : [];
             const materialGroups = ['CS PIPE','SS PIPE','LTCS PIPE','LOW ALLOY PIPE','HIGH ALLOY PIPE','HDPE PIPE','RTRP PIPE'];
@@ -4107,8 +4105,11 @@ function appData() {
             if (!boq?.items?.length) return alert('BOQ belum tersedia. Estimator harus menghitung BOM terlebih dahulu.');
 
             const format = (num) => {
-                const currency = boq.currency === 'IDR' ? 'IDR' : 'USD';
-                return new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 2 }).format(Number(num) || 0);
+                const n = Number(num) || 0;
+                if (boq.currency === 'IDR') {
+                    return new Intl.NumberFormat('id-ID', { style:'currency', currency:'IDR', minimumFractionDigits:0, maximumFractionDigits:0 }).format(n);
+                }
+                return new Intl.NumberFormat('en-US', { style:'currency', currency:'USD', minimumFractionDigits:2, maximumFractionDigits:2 }).format(n);
             };
             const rows = boq.items.map((item, index) => `
                 <tr>
