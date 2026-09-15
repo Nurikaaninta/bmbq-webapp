@@ -55,6 +55,17 @@ function appData() {
         approvalNote: '',
         showModuleModal: false,
 
+        // Manajemen Team & Roles khusus System Administrator
+        showTeamMemberModal: false,
+        teamMemberEditingId: null,
+        teamMembers: [
+            { id: 1, name: 'System Administrator', email: 'admin@tripatra.com', role: 'System Administrator', projects: ['PRJ-3000'], active: true },
+            { id: 2, name: 'Piping Engineer', email: 'engineer@tripatra.com', role: 'Piping Engineer', projects: ['PRJ-3000'], active: true },
+            { id: 3, name: 'Estimator Proposal', email: 'estimator@tripatra.com', role: 'Estimator Proposal', projects: ['PRJ-3000'], active: true },
+            { id: 4, name: 'Lead Estimator', email: 'lead@tripatra.com', role: 'Lead Estimator', projects: ['PRJ-3000'], active: true }
+        ],
+        teamMemberForm: { name: '', email: '', role: 'Piping Engineer', projects: [], active: true },
+
         // State Create Project
         showCreateProjectModal: false,
         isCreatingProject: false,
@@ -1348,7 +1359,11 @@ function appData() {
             const email = this.loginForm.user.trim().toLowerCase();
             const pass = this.loginForm.pass.trim();
 
-            if (email === 'engineer@tripatra.com' && pass === 'engineer123') {
+            if (email === 'admin@tripatra.com' && pass === 'admin123') {
+                this.loginForm.role = 'System Administrator';
+                this.isLoggedIn = true;
+                this.currentDashboardTab = 'team';
+            } else if (email === 'engineer@tripatra.com' && pass === 'engineer123') {
                 this.loginForm.role = 'Piping Engineer';
                 this.isLoggedIn = true;
             } else if (email === 'estimator@tripatra.com' && pass === 'estimator123') {
@@ -1367,6 +1382,43 @@ function appData() {
             this.isLoggedIn = false;
             this.loginForm.user = '';
             this.loginForm.pass = '';
+        },
+
+        openTeamMemberModal() {
+            if (this.loginForm.role !== 'System Administrator') return;
+            this.teamMemberEditingId = null;
+            this.teamMemberForm = { name: '', email: '', role: 'Piping Engineer', projects: [], active: true };
+            this.showTeamMemberModal = true;
+        },
+        editTeamMember(member) {
+            if (this.loginForm.role !== 'System Administrator') return;
+            this.teamMemberEditingId = member.id;
+            this.teamMemberForm = { ...member, projects: [...(member.projects || [])] };
+            this.showTeamMemberModal = true;
+        },
+        closeTeamMemberModal() { this.showTeamMemberModal = false; this.teamMemberEditingId = null; },
+        saveTeamMember() {
+            if (this.loginForm.role !== 'System Administrator') return;
+            const data = { id: this.teamMemberEditingId || Date.now(), name: this.teamMemberForm.name.trim(), email: this.teamMemberForm.email.trim().toLowerCase(), role: this.teamMemberForm.role, projects: [...(this.teamMemberForm.projects || [])], active: !!this.teamMemberForm.active };
+            if (!data.name || !data.email) return;
+            if (this.teamMemberEditingId) { const i = this.teamMembers.findIndex(m => m.id === this.teamMemberEditingId); if (i !== -1) this.teamMembers[i] = data; }
+            else { if (this.teamMembers.some(m => m.email === data.email)) { alert('Email anggota sudah terdaftar.'); return; } this.teamMembers.push(data); }
+            localStorage.setItem('tripatra_team_members_v1', JSON.stringify(this.teamMembers));
+            this.closeTeamMemberModal();
+        },
+        toggleTeamMember(member) {
+            if (this.loginForm.role !== 'System Administrator') return;
+            member.active = !member.active;
+            localStorage.setItem('tripatra_team_members_v1', JSON.stringify(this.teamMembers));
+        },
+        deleteTeamMember(member) {
+            if (this.loginForm.role !== 'System Administrator' || member.email === this.loginForm.user) return;
+            if (!confirm(`Hapus anggota ${member.name}?`)) return;
+            this.teamMembers = this.teamMembers.filter(m => m.id !== member.id);
+            localStorage.setItem('tripatra_team_members_v1', JSON.stringify(this.teamMembers));
+        },
+        loadTeamMembers() {
+            try { const raw = localStorage.getItem('tripatra_team_members_v1'); if (raw) { const parsed = JSON.parse(raw); if (Array.isArray(parsed) && parsed.length) this.teamMembers = parsed; } } catch (e) { console.warn('Data Team & Roles tidak dapat dibaca:', e); }
         },
 
         getRoleFocusText() {

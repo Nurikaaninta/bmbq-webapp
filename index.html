@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
 </head>
-<body class="bg-slate-50 text-slate-800 font-sans antialiased" x-data="appData()">
+<body class="bg-slate-50 text-slate-800 font-sans antialiased" x-data="appData()" x-init="loadTeamMembers()">
 
     <!-- HALAMAN LOGIN -->
     <div x-show="!isLoggedIn" x-cloak class="min-h-screen flex items-center justify-center bg-white px-4">
@@ -139,6 +139,12 @@
                 <button @click="currentDashboardTab = 'tasks'" :class="currentDashboardTab === 'tasks' ? 'bg-[#82C341] text-white font-semibold' : 'hover:bg-blue-900/50 text-slate-300'" class="sidebar-menu-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition">
                     <i class="fa-solid fa-list-check text-base shrink-0 w-4 text-center"></i>
                     <span class="sidebar-text text-xs font-medium">Tasks &amp; Approvals</span>
+                </button>
+
+                <!-- TEAM & ROLES (KHUSUS SYSTEM ADMINISTRATOR) -->
+                <button x-show="loginForm.role === 'System Administrator'" @click="currentDashboardTab = 'team'" :class="currentDashboardTab === 'team' ? 'bg-[#82C341] text-white font-semibold' : 'hover:bg-blue-900/50 text-slate-300'" class="sidebar-menu-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition">
+                    <i class="fa-solid fa-users text-base shrink-0 w-4 text-center"></i>
+                    <span class="sidebar-text text-xs font-medium">Team &amp; Roles</span>
                 </button>
 
                 <!-- USER PROFILE -->
@@ -647,7 +653,46 @@
                     </div>
                 </div>
 
-                <!-- 4. HALAMAN PROFILE -->
+                <!-- 4. TEAM & ROLES -->
+                <div x-show="currentDashboardTab === 'team' && loginForm.role === 'System Administrator'" class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                    <div class="p-6 border-b border-slate-200 flex items-center justify-between gap-4">
+                        <div>
+                            <h2 class="text-sm md:text-base font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-users text-indigo-600"></i> Manajemen Tim Proyek &amp; Hak Akses <span class="text-slate-500 font-semibold">( <span x-text="teamMembers.length"></span> Anggota )</span></h2>
+                            <p class="text-[10px] text-slate-500 mt-1">Kelola anggota, role, project yang dikerjakan, dan status akses pengguna.</p>
+                        </div>
+                        <button @click="openTeamMemberModal()" class="shrink-0 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold px-4 py-2.5 rounded-lg shadow-sm transition"><i class="fa-solid fa-plus mr-1"></i> Tambah Anggota</button>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-[11px]"><thead class="bg-slate-50 border-b border-slate-200"><tr class="text-slate-700">
+                            <th class="text-left px-5 py-3 font-bold">Nama Anggota</th><th class="text-left px-5 py-3 font-bold">Email Disiplin</th><th class="text-left px-5 py-3 font-bold">Peran / Jabatan (Roles)</th><th class="text-center px-5 py-3 font-bold">Project yang Dikerjakan</th><th class="text-center px-5 py-3 font-bold">Status Akses</th><th class="text-center px-5 py-3 font-bold">Aksi Admin</th>
+                        </tr></thead><tbody class="divide-y divide-slate-200">
+                            <template x-for="member in teamMembers" :key="member.id"><tr class="hover:bg-slate-50 transition align-middle">
+                                <td class="px-5 py-5 min-w-[180px]"><div class="font-bold text-slate-800" x-text="member.name"></div></td>
+                                <td class="px-5 py-5 text-slate-600 min-w-[190px]" x-text="member.email"></td>
+                                <td class="px-5 py-5 min-w-[210px]"><span class="font-semibold text-slate-700" x-text="member.role"></span></td>
+                                <td class="px-5 py-4 min-w-[260px]"><div class="flex flex-col items-center gap-1.5"><template x-for="project in member.projects" :key="project"><span class="w-full max-w-[220px] text-center px-2 py-1 rounded-md bg-blue-50 text-blue-700 font-medium" x-text="project"></span></template><span x-show="!member.projects.length" class="text-slate-400 italic">Belum ada project</span></div></td>
+                                <td class="px-5 py-5 text-center"><span class="inline-flex px-2.5 py-1 rounded-md font-bold" :class="member.active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'" x-text="member.active ? 'Active' : 'Inactive'"></span></td>
+                                <td class="px-5 py-5"><div class="flex items-center justify-center gap-2 flex-wrap"><button @click="editTeamMember(member)" class="px-2.5 py-1.5 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white font-bold"><i class="fa-solid fa-pen-to-square"></i> Edit</button><button @click="toggleTeamMember(member)" class="px-2.5 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold" x-text="member.active ? 'Akun Nonaktif' : 'Aktifkan'"></button><button x-show="member.email !== loginForm.user" @click="deleteTeamMember(member)" class="px-2.5 py-1.5 rounded-md bg-rose-600 hover:bg-rose-700 text-white font-bold"><i class="fa-solid fa-trash"></i> Hapus</button></div></td>
+                            </tr></template>
+                        </tbody></table>
+                    </div>
+                </div>
+
+                <!-- MODAL TAMBAH/EDIT ANGGOTA -->
+                <div x-show="showTeamMemberModal" x-cloak class="fixed inset-0 z-[100] bg-transparent flex items-center justify-center p-4" @click.self="closeTeamMemberModal()">
+                    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+                        <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between"><div><h3 class="text-sm font-bold text-slate-800" x-text="teamMemberEditingId ? 'Edit Anggota & Hak Akses' : 'Tambah Anggota & Hak Akses'"></h3><p class="text-[10px] text-slate-500 mt-0.5">Atur role dan project yang dapat diakses anggota.</p></div><button @click="closeTeamMemberModal()" class="text-slate-400 hover:text-slate-700"><i class="fa-solid fa-xmark"></i></button></div>
+                        <form @submit.prevent="saveTeamMember" class="p-6 space-y-4">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label class="block text-[10px] font-bold text-slate-600 mb-1">Nama Anggota</label><input x-model="teamMemberForm.name" required class="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-200 focus:outline-none"></div><div><label class="block text-[10px] font-bold text-slate-600 mb-1">Email Disiplin</label><input type="email" x-model="teamMemberForm.email" required class="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-200 focus:outline-none"></div></div>
+                            <div><label class="block text-[10px] font-bold text-slate-600 mb-1">Peran / Jabatan</label><select x-model="teamMemberForm.role" class="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-xs"><option>System Administrator</option><option>Piping Engineer</option><option>Estimator Proposal</option><option>Lead Estimator</option><option>Project Manager</option><option>Lead Process Engineer</option><option>Lead Piping Engineer</option><option>Process Engineer</option><option>Stress Engineer</option><option>Document Controller</option><option>HSE Engineer</option></select></div>
+                            <div><label class="block text-[10px] font-bold text-slate-600 mb-2">Project yang Dikerjakan</label><div class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-36 overflow-y-auto border border-slate-200 rounded-lg p-3"><template x-for="projectKey in Object.keys(allProjectsData)" :key="projectKey"><label class="flex items-center gap-2 text-[10px] text-slate-700 cursor-pointer"><input type="checkbox" :value="projectKey" x-model="teamMemberForm.projects" class="rounded border-slate-300 text-indigo-600"><span x-text="projectKey"></span></label></template></div></div>
+                            <label class="flex items-center gap-2 text-xs text-slate-700"><input type="checkbox" x-model="teamMemberForm.active" class="rounded border-slate-300 text-indigo-600"> Akun aktif</label>
+                            <div class="flex justify-end gap-2 pt-2"><button type="button" @click="closeTeamMemberModal()" class="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold">Batal</button><button type="submit" class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold">Simpan</button></div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- 5. HALAMAN PROFILE -->
                 <div x-show="currentDashboardTab === 'profile'" class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4 max-w-xl">
                     <h2 class="text-base font-bold text-slate-800">User Profile & Settings</h2>
                     <div class="space-y-3 text-xs text-slate-600">
