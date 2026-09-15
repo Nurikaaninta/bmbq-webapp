@@ -1758,3 +1758,18 @@ aside,
     .team-roles-table { min-width: 1020px !important; }
     .team-admin-actions { grid-template-columns: 58px 88px 58px; gap: 6px; }
 }
+
+/* Project Plan icon: same visual footprint as the other sidebar icons.
+   The supplied artwork is recolored to white so its linework stays visible on the dark sidebar. */
+.project-plan-icon {
+    width: 20px !important;
+    height: 20px !important;
+    min-width: 20px !important;
+    min-height: 20px !important;
+    object-fit: contain !important;
+    object-position: center !important;
+    display: block !important;
+    flex: 0 0 20px !important;
+    filter: brightness(0) invert(1) !important;
+    opacity: 0.96 !important;
+}

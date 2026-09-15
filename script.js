@@ -4272,7 +4272,7 @@ function appData() {
                 ...remaining.filter(c => !preferred.includes(c))
             ];
 
-            const maxPerSection = paper === 'A3' ? 10 : 7;
+            const maxPerSection = paper === 'A3' ? 8 : 6;
             const sections = [];
             for (let i = 0; i < ordered.length; i += maxPerSection) {
                 sections.push(ordered.slice(i, i + maxPerSection));
@@ -4280,10 +4280,10 @@ function appData() {
             if (!sections.length) sections.push([]);
 
             const paperConfig = {
-                A3: { font:'8.2px', head:'8.0px', pad:'4.2px', title:'15px', desc:'36%', sectionCols:10 },
-                A4: { font:'7.6px', head:'7.3px', pad:'3.8px', title:'13px', desc:'34%', sectionCols:7 },
-                Letter: { font:'7.4px', head:'7.1px', pad:'3.6px', title:'13px', desc:'34%', sectionCols:7 }
-            }[paper] || { font:'7.1px', head:'6.7px', pad:'3.4px', title:'14px', desc:'31%', sectionCols:18 };
+                A3: { font:'8.2px', head:'8.0px', pad:'4.2px', title:'15px', desc:'30%', sectionCols:8 },
+                A4: { font:'7.6px', head:'7.3px', pad:'3.8px', title:'13px', desc:'30%', sectionCols:6 },
+                Letter: { font:'7.4px', head:'7.1px', pad:'3.6px', title:'13px', desc:'30%', sectionCols:6 }
+            }[paper] || { font:'7.1px', head:'6.7px', pad:'3.4px', title:'14px', desc:'30%', sectionCols:6 };
 
             const sectionName = (cols, index) => {
                 const text = cols.join(' ').toLowerCase();
@@ -4296,6 +4296,38 @@ function appData() {
 
             const makeTable = (sectionCols) => {
                 const headers = ['No', descriptionCol, ...sectionCols.filter(c => c !== descriptionCol)];
+
+                // Lebar kolom mengikuti panjang header + isi aktual.
+                // Bobot memakai panjang teks maksimum yang benar-benar ada di data,
+                // lalu dinormalisasi ke lebar halaman PDF agar kolom pendek tidak
+                // memakan ruang berlebihan dan kolom panjang tetap mendapat ruang.
+                const getCellText = (h, row) => String(row?.[h] ?? '').trim();
+                const naturalLengths = headers.map((h, idx) => {
+                    if (idx === 0) return 4;
+                    const values = rows.map(row => getCellText(h, row));
+                    const maxValueLength = values.reduce((m, v) => Math.max(m, v.length), 0);
+                    const avgValueLength = values.length
+                        ? values.reduce((sum, v) => sum + Math.min(v.length, 80), 0) / values.length
+                        : 0;
+                    const headerLength = String(h).length;
+                    // Gabungkan header, isi terpanjang, dan rata-rata isi.
+                    // Description mendapat prioritas sedikit lebih tinggi karena biasanya paling panjang.
+                    const score = Math.max(
+                        headerLength,
+                        maxValueLength * 0.58 + avgValueLength * 0.42
+                    );
+                    return h === descriptionCol ? score * 1.12 : score;
+                });
+
+                // Batasi ekstrem agar satu cell tidak mengambil seluruh halaman.
+                const clipped = naturalLengths.map((v, idx) => {
+                    if (idx === 0) return 4;
+                    return Math.max(6, Math.min(34, v));
+                });
+                const weightTotal = clipped.reduce((a,b) => a + b, 0) || 1;
+                const widths = clipped.map(w => (w / weightTotal) * 100);
+                const colgroup = widths.map((w, i) => `<col style="width:${w.toFixed(2)}%">`).join('');
+
                 const head = headers.map(h => `<th class="${h === descriptionCol ? 'desc-head' : ''}">${escapeHtml(h)}</th>`).join('');
                 const body = rows.map((row, i) => {
                     const cells = headers.map((h, j) => {
@@ -4304,7 +4336,7 @@ function appData() {
                     }).join('');
                     return `<tr>${cells}</tr>`;
                 }).join('');
-                return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+                return `<table><colgroup>${colgroup}</colgroup><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
             };
 
             const sectionsHtml = sections.map((sectionCols, index) => {
@@ -4347,9 +4379,9 @@ body{font-size:${paperConfig.font};-webkit-print-color-adjust:exact;print-color-
 .title{text-align:center}.title h1{font-size:${paperConfig.title};margin:0 0 2px;font-weight:800;letter-spacing:.2px;color:#0f172a}.title .sub{font-size:7.5px;color:#64748b;margin-top:2px}.section-title{font-size:8.5px;color:#2d7964;font-weight:800;margin-top:4px}
 .meta{font-size:7.2px;line-height:1.5;text-align:right;color:#334155}.meta b{color:#0f172a}.meta .status{color:#4e9f17;font-weight:700}
 .report-info{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;margin-bottom:4mm}.info-box{border:1px solid #d7e0ea;border-radius:4px;padding:3px 5px;background:#f8fafc;min-height:9mm}.info-label{font-size:6.2px;text-transform:uppercase;color:#64748b;font-weight:700}.info-value{font-size:7.5px;color:#0f172a;font-weight:700;margin-top:1.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.table-wrap{width:100%;overflow:visible}table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:${paperConfig.font}}
-thead{display:table-header-group}tr{page-break-inside:avoid;break-inside:avoid}th,td{border:1px solid #aebed0;padding:${paperConfig.pad};vertical-align:middle;overflow:hidden;word-break:break-word;line-height:1.16}th{background:#2d7964;color:#fff;text-align:center;font-weight:700;font-size:${paperConfig.head};white-space:normal}td{color:#172033;background:#fff}tbody tr:nth-child(even) td{background:#f7fafc}
-th:first-child{width:5%}.no-cell{text-align:center;font-weight:700}.desc-head,.desc-cell{width:${paperConfig.desc}}.desc-cell{font-weight:600;line-height:1.25}
+.table-wrap{width:100%;overflow:visible}table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:${paperConfig.font};margin:0}
+thead{display:table-header-group}tr{page-break-inside:avoid;break-inside:avoid}th,td{border:1px solid #aebed0;padding:${paperConfig.pad};vertical-align:middle;overflow-wrap:anywhere;word-break:normal;line-height:1.18;white-space:normal;text-align:center}th{background:#2d7964;color:#fff;text-align:center;font-weight:700;font-size:${paperConfig.head};white-space:normal}td{color:#172033;background:#fff}tbody tr:nth-child(even) td{background:#f7fafc}
+th:first-child,.no-cell{min-width:22px}.no-cell{text-align:center;font-weight:700}.desc-head,.desc-cell{min-width:70px}.desc-cell{font-weight:600;line-height:1.25;text-align:center}
 .footer{margin-top:4mm;padding-top:1.5mm;border-top:1px solid #d7e0ea;text-align:right;font-size:6px;color:#94a3b8}
 @page{size:${paper} landscape;margin:0}
 @media print{.pdf-section{min-height:auto}}

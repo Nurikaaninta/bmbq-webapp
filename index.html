@@ -70,12 +70,12 @@
                     <span class="sidebar-text text-xs font-medium">Dashboard Home</span>
                 </button>
 
-                <!-- CREATE PROJECT: TEPAT DI BAWAH DASHBOARD HOME -->
+                <!-- PROJECT PLAN: TEPAT DI BAWAH DASHBOARD HOME -->
                 <div class="relative mt-1" x-data="{ openDropdown: false }">
-                    <button @click="openDropdown = !openDropdown" type="button" class="sidebar-menu-btn w-full flex items-center justify-between px-3 py-2.5 rounded-lg bg-slate-900 border border-slate-700 text-white hover:border-slate-500 shadow-sm transition">
+                    <button @click="openDropdown = !openDropdown" type="button" class="sidebar-menu-btn w-full flex items-center justify-between px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-white hover:border-slate-500 shadow-sm transition">
                         <span class="flex items-center space-x-3 min-w-0">
-                            <i class="fa-solid fa-folder-plus text-base shrink-0 w-4 text-center"></i>
-                            <span class="sidebar-text text-xs font-medium">Create Project</span>
+                            <img src="project-plan-icon.png" alt="Project Plan" class="project-plan-icon shrink-0">
+                            <span class="sidebar-text text-xs font-medium">Project Plan</span>
                         </span>
                         <i class="fa-solid fa-chevron-down text-xs text-slate-400 transition-transform duration-200 shrink-0" :class="openDropdown ? 'rotate-180' : ''"></i>
                     </button>
@@ -103,23 +103,21 @@
                 </div>
 
                 <!-- MTO PIPE & FITTING VALVE -->
-                <button @click="openDataSheet('Valve')" :class="currentDashboardTab === 'workspace' && !['SP Items', 'Support', 'LineList'].includes(activeSheet) ? 'bg-[#82C341] text-white font-semibold' : 'hover:bg-blue-900/50 text-slate-300'" class="sidebar-menu-btn w-full flex items-center space-x-3 pl-9 pr-3 py-2.5 rounded-lg transition mt-1">
+                <button @click="openDataSheet('Valve')" :class="currentDashboardTab === 'workspace' && !['SP Items', 'Support', 'LineList'].includes(activeSheet) ? 'bg-[#82C341] text-white font-semibold' : 'hover:bg-blue-900/50 text-slate-300'" class="sidebar-menu-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition mt-1">
                     <i class="fa-solid fa-table-cells text-base shrink-0 w-4 text-center"></i>
                     <span class="sidebar-text text-xs font-medium">MTO Pipe &amp; Fitting Valve</span>
                 </button>
 
-                <!-- SUBMENU MTO -->
-                <div class="mt-1 pl-3 space-y-1 border-l border-blue-900/70 ml-3">
-                    <button @click="openDataSheet('SP Items')" :class="activeSheet === 'SP Items' && currentDashboardTab === 'workspace' ? 'bg-[#82C341]/20 text-[#82C341]' : 'hover:bg-blue-900/40 text-slate-300'" class="sidebar-menu-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition text-left">
-                        <i class="fa-solid fa-cubes text-base w-4 text-center shrink-0"></i><span class="sidebar-text text-xs font-medium">SP Items</span>
-                    </button>
-                    <button @click="openDataSheet('Support')" :class="activeSheet === 'Support' && currentDashboardTab === 'workspace' ? 'bg-[#82C341]/20 text-[#82C341]' : 'hover:bg-blue-900/40 text-slate-300'" class="sidebar-menu-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition text-left">
-                        <i class="fa-solid fa-layer-group text-base w-4 text-center shrink-0"></i><span class="sidebar-text text-xs font-medium">Pipe Support</span>
-                    </button>
-                    <button @click="openDataSheet('LineList')" :class="activeSheet === 'LineList' && currentDashboardTab === 'workspace' ? 'bg-[#82C341]/20 text-[#82C341]' : 'hover:bg-blue-900/40 text-slate-300'" class="sidebar-menu-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition text-left">
-                        <i class="fa-solid fa-route text-base w-4 text-center shrink-0"></i><span class="sidebar-text text-xs font-medium">Line List</span>
-                    </button>
-                </div>
+                <!-- MENU MTO LAIN: SEJAJAR DENGAN DASHBOARD HOME -->
+                <button @click="openDataSheet('SP Items')" :class="activeSheet === 'SP Items' && currentDashboardTab === 'workspace' ? 'bg-[#82C341] text-white font-semibold' : 'hover:bg-blue-900/50 text-slate-300'" class="sidebar-menu-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition mt-1 text-left">
+                    <i class="fa-solid fa-cubes text-base w-4 text-center shrink-0"></i><span class="sidebar-text text-xs font-medium">SP Items</span>
+                </button>
+                <button @click="openDataSheet('Support')" :class="activeSheet === 'Support' && currentDashboardTab === 'workspace' ? 'bg-[#82C341] text-white font-semibold' : 'hover:bg-blue-900/50 text-slate-300'" class="sidebar-menu-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition mt-1 text-left">
+                    <i class="fa-solid fa-layer-group text-base w-4 text-center shrink-0"></i><span class="sidebar-text text-xs font-medium">Pipe Support</span>
+                </button>
+                <button @click="openDataSheet('LineList')" :class="activeSheet === 'LineList' && currentDashboardTab === 'workspace' ? 'bg-[#82C341] text-white font-semibold' : 'hover:bg-blue-900/50 text-slate-300'" class="sidebar-menu-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition mt-1 text-left">
+                    <i class="fa-solid fa-route text-base w-4 text-center shrink-0"></i><span class="sidebar-text text-xs font-medium">Line List</span>
+                </button>
 
                 <!-- CALCULATE BOM: MENU UTAMA, DI LUAR CREATE PROJECT -->
                 <button x-show="loginForm.role === 'Piping Engineer'" @click="openCalculateBOM()" :class="showBomModal ? 'bg-[#82C341] text-white font-semibold' : 'hover:bg-blue-900/50 text-slate-300'" class="sidebar-menu-btn w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition mt-1">
@@ -932,8 +930,8 @@
                         <button type="submit"
                                 :disabled="isCreatingProject"
                                 class="px-4 py-2.5 bg-[#82C341] hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold shadow-sm transition flex items-center gap-2">
-                            <i :class="isCreatingProject ? 'fa-solid fa-spinner fa-spin' : 'fa-solid fa-folder-plus'"></i>
-                            <span x-text="isCreatingProject ? 'Creating...' : 'Create Project'"></span>
+                            <i :class="isCreatingProject ? 'fa-solid fa-spinner fa-spin' : 'fa-solid fa-file-lines'"></i>
+                            <span x-text="isCreatingProject ? 'Creating...' : 'Project Plan'"></span>
                         </button>
                     </div>
                 </div>
