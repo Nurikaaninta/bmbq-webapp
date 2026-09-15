@@ -237,6 +237,94 @@ function appData() {
             }
         },
 
+        // ==========================================================
+        // SESSION + NAVIGATION PERSISTENCE
+        // Menyimpan halaman terakhir dan sesi login secara aman di browser.
+        // Password TIDAK pernah disimpan.
+        // ==========================================================
+        pageStateStorageKey: 'bmbq_page_state_v2',
+        authStorageKey: 'bmbq_auth_state_v2',
+
+        savePageState() {
+            try {
+                localStorage.setItem(this.pageStateStorageKey, JSON.stringify({
+                    currentDashboardTab: this.currentDashboardTab,
+                    activeProject: this.activeProject,
+                    activeSheet: this.activeSheet,
+                    currentPage: this.currentPage,
+                    globalSearch: this.globalSearch || ''
+                }));
+            } catch (e) {
+                console.warn('State halaman tidak dapat disimpan:', e);
+            }
+        },
+
+        loadPageState() {
+            try {
+                const raw = localStorage.getItem(this.pageStateStorageKey);
+                if (!raw) return;
+                const state = JSON.parse(raw);
+                if (!state || typeof state !== 'object') return;
+
+                const validTabs = ['home', 'workspace', 'tasks', 'team', 'profile'];
+                if (validTabs.includes(state.currentDashboardTab)) {
+                    this.currentDashboardTab = state.currentDashboardTab;
+                }
+                if (state.activeProject && this.allProjectsData?.[state.activeProject]) {
+                    this.activeProject = state.activeProject;
+                }
+                if (state.activeSheet && this.sheets.includes(state.activeSheet)) {
+                    this.activeSheet = state.activeSheet;
+                }
+                const page = Number(state.currentPage);
+                if (Number.isFinite(page) && page >= 1) {
+                    this.currentPage = Math.floor(page);
+                }
+                if (typeof state.globalSearch === 'string') {
+                    this.globalSearch = state.globalSearch;
+                }
+            } catch (e) {
+                console.warn('State halaman tidak dapat dipulihkan:', e);
+            }
+        },
+
+        saveAuthState() {
+            try {
+                if (this.isLoggedIn && this.loginForm.user && this.loginForm.role) {
+                    localStorage.setItem(this.authStorageKey, JSON.stringify({
+                        isLoggedIn: true,
+                        user: this.loginForm.user,
+                        role: this.loginForm.role
+                    }));
+                }
+            } catch (e) {
+                console.warn('Session login tidak dapat disimpan:', e);
+            }
+        },
+
+        restoreAuthState() {
+            try {
+                const raw = localStorage.getItem(this.authStorageKey);
+                if (!raw) return false;
+                const state = JSON.parse(raw);
+                if (!state?.isLoggedIn || !state.user || !state.role) return false;
+
+                this.loginForm.user = String(state.user);
+                this.loginForm.role = String(state.role);
+                // Password sengaja tetap kosong dan tidak disimpan.
+                this.loginForm.pass = '';
+                this.isLoggedIn = true;
+                return true;
+            } catch (e) {
+                console.warn('Session login tidak dapat dipulihkan:', e);
+                return false;
+            }
+        },
+
+        clearAuthState() {
+            try { localStorage.removeItem(this.authStorageKey); } catch (e) {}
+        },
+
         init() {
             this.$nextTick(() => {
                 this.updateTableScrollbar();
@@ -308,6 +396,35 @@ function appData() {
 
             this.refreshSheetList();
             this.loadApprovalHistory();
+
+            // Pulihkan posisi halaman SETELAH seluruh data proyek/sheet siap.
+            this.loadPageState();
+            const restoredSession = this.restoreAuthState();
+
+            // Simpan perubahan navigasi secara otomatis. Dengan watcher ini,
+            // klik menu, ganti project/sheet, pagination, dan pencarian akan
+            // tetap berada di posisi terakhir ketika browser di-refresh.
+            ['currentDashboardTab', 'activeProject', 'activeSheet', 'currentPage', 'globalSearch'].forEach(prop => {
+                this.$watch(prop, () => this.savePageState());
+            });
+            this.$watch('isLoggedIn', value => {
+                if (value) this.saveAuthState();
+                else this.clearAuthState();
+            });
+            this.$watch('loginForm.user', () => {
+                if (this.isLoggedIn) this.saveAuthState();
+            });
+            this.$watch('loginForm.role', () => {
+                if (this.isLoggedIn) this.saveAuthState();
+            });
+
+            // Jika session berhasil dipulihkan, jangan mengubah tab terakhir.
+            // User langsung masuk ke halaman terakhir tanpa melihat login.
+            if (restoredSession) {
+                this.loginError = false;
+            }
+
+            this.savePageState();
             this.saveStorage();
         },
 
@@ -1375,13 +1492,23 @@ function appData() {
             } else {
                 this.loginError = true;
                 this.loginErrorMsg = 'Email atau password salah. Silakan periksa kembali.';
+                return;
             }
+
+            this.saveAuthState();
+            this.savePageState();
         },
 
         logout() {
+            this.clearAuthState();
             this.isLoggedIn = false;
             this.loginForm.user = '';
             this.loginForm.pass = '';
+            this.loginForm.role = '';
+            // Setelah logout, halaman berikutnya kembali ke login.
+            this.currentDashboardTab = 'home';
+            this.currentPage = 1;
+            this.savePageState();
         },
 
         openTeamMemberModal() {
