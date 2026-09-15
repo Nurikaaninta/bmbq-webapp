@@ -654,25 +654,34 @@
                 </div>
 
                 <!-- 4. TEAM & ROLES -->
-                <div x-show="currentDashboardTab === 'team' && loginForm.role === 'System Administrator'" class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-                    <div class="p-6 border-b border-slate-200 flex items-center justify-between gap-4">
+                <div x-show="currentDashboardTab === 'team' && loginForm.role === 'System Administrator'" class="team-roles-card bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                    <div class="team-roles-header p-6 border-b border-slate-200 flex items-center justify-between gap-6">
                         <div>
-                            <h2 class="text-sm md:text-base font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-users text-indigo-600"></i> Manajemen Tim Proyek &amp; Hak Akses <span class="text-slate-500 font-semibold">( <span x-text="teamMembers.length"></span> Anggota )</span></h2>
-                            <p class="text-[10px] text-slate-500 mt-1">Kelola anggota, role, project yang dikerjakan, dan status akses pengguna.</p>
+                            <h2 class="team-roles-title text-sm md:text-base font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-users text-indigo-600"></i><span>Manajemen Tim Proyek &amp; Hak Akses</span><span class="team-member-count text-slate-500 font-semibold">(<span x-text="teamMembers.length"></span> Anggota)</span></h2>
+                            <p class="team-roles-subtitle text-[10px] text-slate-500 mt-1">Kelola anggota, role, project yang dikerjakan, dan status akses pengguna.</p>
                         </div>
                         <button @click="openTeamMemberModal()" class="shrink-0 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold px-4 py-2.5 rounded-lg shadow-sm transition"><i class="fa-solid fa-plus mr-1"></i> Tambah Anggota</button>
                     </div>
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-[11px]"><thead class="bg-slate-50 border-b border-slate-200"><tr class="text-slate-700">
-                            <th class="text-left px-5 py-3 font-bold">Nama Anggota</th><th class="text-left px-5 py-3 font-bold">Email Disiplin</th><th class="text-left px-5 py-3 font-bold">Peran / Jabatan (Roles)</th><th class="text-center px-5 py-3 font-bold">Project yang Dikerjakan</th><th class="text-center px-5 py-3 font-bold">Status Akses</th><th class="text-center px-5 py-3 font-bold">Aksi Admin</th>
-                        </tr></thead><tbody class="divide-y divide-slate-200">
+                    <div class="team-roles-table-wrap overflow-x-auto">
+                        <table id="teamRolesTable" class="team-roles-table w-full text-[11px] table-fixed">
+                            <colgroup>
+                                <col class="team-col-name">
+                                <col class="team-col-email">
+                                <col class="team-col-role">
+                                <col class="team-col-project">
+                                <col class="team-col-status">
+                                <col class="team-col-actions">
+                            </colgroup>
+                            <thead class="bg-slate-50 border-b border-slate-200"><tr class="text-slate-700">
+                                <th class="text-left px-5 py-3 font-bold">Nama Anggota</th><th class="text-left px-5 py-3 font-bold">Email Disiplin</th><th class="text-left px-5 py-3 font-bold">Peran / Jabatan (Roles)</th><th class="text-center px-5 py-3 font-bold">Project yang Dikerjakan</th><th class="text-center px-5 py-3 font-bold">Status Akses</th><th class="text-center px-5 py-3 font-bold">Aksi Admin</th>
+                            </tr></thead><tbody class="divide-y divide-slate-200">
                             <template x-for="member in teamMembers" :key="member.id"><tr class="hover:bg-slate-50 transition align-middle">
                                 <td class="px-5 py-5 min-w-[180px]"><div class="font-bold text-slate-800" x-text="member.name"></div></td>
                                 <td class="px-5 py-5 text-slate-600 min-w-[190px]" x-text="member.email"></td>
                                 <td class="px-5 py-5 min-w-[210px]"><span class="font-semibold text-slate-700" x-text="member.role"></span></td>
                                 <td class="px-5 py-4 min-w-[260px]"><div class="flex flex-col items-center gap-1.5"><template x-for="project in member.projects" :key="project"><span class="w-full max-w-[220px] text-center px-2 py-1 rounded-md bg-blue-50 text-blue-700 font-medium" x-text="project"></span></template><span x-show="!member.projects.length" class="text-slate-400 italic">Belum ada project</span></div></td>
                                 <td class="px-5 py-5 text-center"><span class="inline-flex px-2.5 py-1 rounded-md font-bold" :class="member.active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'" x-text="member.active ? 'Active' : 'Inactive'"></span></td>
-                                <td class="px-5 py-5"><div class="flex items-center justify-center gap-2 flex-wrap"><button @click="editTeamMember(member)" class="px-2.5 py-1.5 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white font-bold"><i class="fa-solid fa-pen-to-square"></i> Edit</button><button @click="toggleTeamMember(member)" class="px-2.5 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold" x-text="member.active ? 'Akun Nonaktif' : 'Aktifkan'"></button><button x-show="member.email !== loginForm.user" @click="deleteTeamMember(member)" class="px-2.5 py-1.5 rounded-md bg-rose-600 hover:bg-rose-700 text-white font-bold"><i class="fa-solid fa-trash"></i> Hapus</button></div></td>
+                                <td class="team-actions-cell px-4 py-4 align-middle"><div class="team-admin-actions"><button @click="editTeamMember(member)" class="team-action-btn team-edit-btn rounded-md bg-indigo-600 hover:bg-indigo-700 text-white font-bold"><i class="fa-solid fa-pen-to-square"></i><span>Edit</span></button><button @click="toggleTeamMember(member)" class="team-action-btn team-toggle-btn rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold" x-text="member.active ? 'Akun Nonaktif' : 'Aktifkan'"></button><button :class="member.email === loginForm.user ? 'invisible pointer-events-none' : ''" @click="deleteTeamMember(member)" class="team-action-btn team-delete-btn rounded-md bg-rose-600 hover:bg-rose-700 text-white font-bold"><i class="fa-solid fa-trash"></i><span>Hapus</span></button></div></td>
                             </tr></template>
                         </tbody></table>
                     </div>

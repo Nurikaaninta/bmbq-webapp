@@ -1628,3 +1628,133 @@ aside,
 .workspace-table-card .table-bottom-scrollbar::-webkit-scrollbar-thumb:hover {
     background: #475569 !important;
 }
+
+/* Team & Roles: kolom Aksi Admin selalu sejajar */
+.team-actions-cell { width:235px; min-width:235px; vertical-align:middle; }
+
+/* =========================================================
+   TEAM & ROLES — FINAL CLEAN LAYOUT
+   Menyamakan lebar kolom, jarak, alignment, dan tinggi baris.
+   ========================================================= */
+.team-roles-card {
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+}
+
+.team-roles-header {
+    min-height: 88px;
+    padding: 20px 24px !important;
+}
+
+.team-roles-title {
+    line-height: 1.35;
+    letter-spacing: -0.01em;
+}
+
+.team-member-count {
+    margin-left: 2px;
+    white-space: nowrap;
+}
+
+.team-roles-subtitle {
+    line-height: 1.5;
+}
+
+.team-roles-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+}
+
+.team-roles-table {
+    width: 100% !important;
+    min-width: 1080px !important;
+    table-layout: fixed !important;
+    border-collapse: collapse !important;
+}
+
+.team-roles-table col.team-col-name { width: 16%; }
+.team-roles-table col.team-col-email { width: 17%; }
+.team-roles-table col.team-col-role { width: 18%; }
+.team-roles-table col.team-col-project { width: 21%; }
+.team-roles-table col.team-col-status { width: 10%; }
+.team-roles-table col.team-col-actions { width: 18%; }
+
+.team-roles-table th,
+.team-roles-table td {
+    box-sizing: border-box !important;
+    vertical-align: middle !important;
+}
+
+.team-roles-table thead th {
+    height: 44px;
+    padding: 11px 16px !important;
+    white-space: nowrap;
+    font-size: 11px;
+}
+
+.team-roles-table tbody td {
+    min-height: 58px;
+    padding: 13px 16px !important;
+}
+
+.team-roles-table tbody tr {
+    height: 68px;
+}
+
+.team-roles-table tbody td:nth-child(1),
+.team-roles-table tbody td:nth-child(2),
+.team-roles-table tbody td:nth-child(3) {
+    text-align: left;
+}
+
+.team-roles-table tbody td:nth-child(4),
+.team-roles-table tbody td:nth-child(5),
+.team-roles-table tbody td:nth-child(6) {
+    text-align: center;
+}
+
+.team-roles-table .team-actions-cell {
+    width: auto !important;
+    min-width: 0 !important;
+}
+
+.team-admin-actions {
+    width: 100%;
+    display: grid !important;
+    grid-template-columns: 62px 92px 62px;
+    justify-content: center;
+    align-items: center;
+    gap: 7px;
+}
+
+.team-action-btn {
+    width: 100% !important;
+    height: 34px !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+    padding: 0 7px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 4px !important;
+    white-space: nowrap !important;
+    line-height: 1 !important;
+    box-sizing: border-box !important;
+    font-size: 10px !important;
+}
+
+.team-toggle-btn {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.team-roles-table .team-col-actions {
+    width: 18% !important;
+}
+
+@media (max-width: 1200px) {
+    .team-roles-header { padding: 18px 20px !important; }
+    .team-roles-table { min-width: 1020px !important; }
+    .team-admin-actions { grid-template-columns: 58px 88px 58px; gap: 6px; }
+}
