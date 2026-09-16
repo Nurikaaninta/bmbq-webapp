@@ -1809,23 +1809,45 @@ function appData() {
             }
 
             const button = event?.currentTarget || event?.target;
-            const rect = button?.getBoundingClientRect?.();
+
+            // Posisi popup mengikuti HEADER KOLOM, bukan icon filter.
+            // Dengan begitu popup selalu turun ke bawah kolom dan tidak
+            // "menyamping" dari posisi icon.
+            const header = button?.closest?.('th');
+            const rect = header?.getBoundingClientRect?.() || button?.getBoundingClientRect?.();
 
             if (rect) {
-                const popupWidth = 300;
-                const popupHeight = Math.min(430, window.innerHeight - 24);
-                let left = rect.left;
-                let top = rect.bottom + 6;
+                // Popup dibuat cukup lebar untuk nilai terpanjang, tetapi tetap
+                // dibatasi agar tidak keluar dari layar. Nilai filter tetap
+                // ditampilkan vertikal melalui CSS dan boleh wrap.
+                const longestFilterValue = (this.filterOptions || []).reduce((max, value) => {
+                    const len = this.filterDisplayValue(value).length;
+                    return Math.max(max, len);
+                }, 0);
+                const popupWidth = Math.min(460, Math.max(330, 250 + Math.min(longestFilterValue, 70) * 1.8));
+                const gap = 6;
 
+                // Selalu buka ke bawah.
+                let left = rect.left;
+                const top = rect.bottom + gap;
+
+                // Jika kolom dekat sisi kanan layar, geser sedikit ke kiri
+                // hanya untuk menjaga popup tetap terlihat horizontal.
                 if (left + popupWidth > window.innerWidth - 12) {
                     left = Math.max(12, window.innerWidth - popupWidth - 12);
                 }
 
-                if (top + popupHeight > window.innerHeight - 12) {
-                    top = Math.max(12, rect.top - popupHeight - 6);
-                }
+                // Jangan pernah memindahkan popup ke atas.
+                // Jika ruang bawah sedikit, kecilkan tinggi popup agar
+                // daftar option tetap bisa discroll.
+                const availableHeight = Math.max(180, window.innerHeight - top - 12);
+                const maxHeight = Math.min(430, availableHeight);
 
-                this.filterPopupPosition = { left, top };
+                this.filterPopupPosition = {
+                    left,
+                    top,
+                    maxHeight
+                };
             }
 
             this.filterPopupOpen = true;

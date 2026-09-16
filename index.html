@@ -437,7 +437,7 @@
                              x-show="filterPopupOpen"
                              x-transition
                              class="column-filter-popup"
-                             :style="`left:${filterPopupPosition.left}px; top:${filterPopupPosition.top}px;`"
+                             :style="`left:${filterPopupPosition.left}px; top:${filterPopupPosition.top}px; max-height:${filterPopupPosition.maxHeight || 430}px;`"
                              @click.stop
                              @click.outside="closeColumnFilter()"
                              @keydown.escape.window="closeColumnFilter()">
@@ -1759,7 +1759,7 @@
 
     </script>
     <script src="seed-data.js"></script>
-    <script src="script.js?v=11"></script>
+    <script src="script.js?v=18"></script>
 
 <script>
 /*

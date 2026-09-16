@@ -1773,3 +1773,82 @@ aside,
     filter: brightness(0) invert(1) !important;
     opacity: 0.96 !important;
 }
+
+
+/* FILTER POPUP: selalu dropdown ke bawah dari header kolom */
+.column-filter-popup {
+    box-sizing: border-box !important;
+    transform-origin: top left !important;
+}
+
+/* ==========================================================
+   FILTER OPTION - VERTICAL & LONG TEXT FIX
+   Setiap nilai filter selalu satu baris/row ke bawah, bukan
+   menyamping. Teks panjang boleh wrap agar tidak terpotong.
+   ========================================================== */
+.column-filter-popup {
+    width: 390px !important;
+    max-width: min(390px, calc(100vw - 24px)) !important;
+}
+
+.column-filter-popup-header {
+    display: flex !important;
+}
+
+.column-filter-popup-column {
+    max-width: 320px !important;
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    overflow-wrap: anywhere !important;
+    word-break: break-word !important;
+    line-height: 1.3 !important;
+}
+
+.column-filter-search,
+.column-filter-actions,
+.column-filter-check-all,
+.column-filter-footer,
+.column-filter-footer-right {
+    display: flex !important;
+}
+
+.column-filter-options {
+    display: block !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+}
+
+.column-filter-option {
+    display: flex !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    align-items: flex-start !important;
+    gap: 8px !important;
+    min-height: 30px !important;
+    padding: 6px 7px !important;
+    white-space: normal !important;
+}
+
+.column-filter-option input {
+    flex: 0 0 auto !important;
+    width: 13px !important;
+    height: 13px !important;
+    margin-top: 2px !important;
+}
+
+.column-filter-option span {
+    display: block !important;
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    overflow-wrap: anywhere !important;
+    word-break: break-word !important;
+    line-height: 1.35 !important;
+}
+
+.column-filter-options::-webkit-scrollbar {
+    width: 8px !important;
+}
